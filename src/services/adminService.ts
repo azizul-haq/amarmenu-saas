@@ -1,10 +1,18 @@
 import { supabase } from "../config/supabase";
 import type { RegistrationRequest, Restaurant } from "../config/supabase";
-import {
-  generateSlug,
-  generateTempPassword,
-  hashPassword,
-} from "../utils/helpers";
+
+export interface ApprovalResult {
+  success: boolean;
+  restaurant?: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  inviteLink?: string;
+  email?: string;
+  ownerName?: string;
+  error?: string;
+}
 
 /**
  * Admin API Service
@@ -58,69 +66,69 @@ export const createRestaurantAccount = async (
     subscriptionPlan: string;
     internalNotes?: string;
   }
-) => {
+): Promise<ApprovalResult> => {
   try {
-    // 1. Get registration request
-    const { data: request, error: requestError } = await supabase
-      .from("registration_requests")
-      .select("*")
-      .eq("id", requestId)
-      .single();
+    // 1. Try invoking the Supabase Edge Function 'approve-registration'
+    try {
+      const { data: edgeData, error: edgeError } = await supabase.functions.invoke(
+        "approve-registration",
+        {
+          body: {
+            requestId,
+            subscriptionPlan: data.subscriptionPlan,
+            internalNotes: data.internalNotes,
+            appUrl: window.location.origin,
+          },
+        }
+      );
 
-    if (requestError || !request) {
-      throw new Error("Registration request not found");
+      if (!edgeError && edgeData && edgeData.success) {
+        return {
+          success: true,
+          restaurant: edgeData.restaurant,
+          inviteLink: edgeData.inviteLink,
+          email: edgeData.email,
+          ownerName: edgeData.ownerName,
+        };
+      }
+    } catch {
+      // If Edge Function is not deployed or network fails, proceed to server RPC fallback
     }
 
-    // 2. Generate slug and temp password
-    const slug = generateSlug(request.restaurant_name);
-    const tempPassword = generateTempPassword();
-    const passwordHash = await hashPassword(tempPassword);
-
-    // 3. Use RPC function to create restaurant and user (bypasses RLS)
-    const { data: result, error: rpcError } = await supabase.rpc(
-      "admin_create_restaurant",
+    // 2. Server-side RPC fallback: approve_registration_request
+    const { data: rpcData, error: rpcError } = await supabase.rpc(
+      "approve_registration_request",
       {
         p_request_id: requestId,
-        p_restaurant_name: request.restaurant_name,
-        p_slug: slug,
-        p_owner_name: request.owner_name,
-        p_phone: request.phone,
-        p_email: data.email,
-        p_city: request.city,
-        p_address: request.address || null,
         p_subscription_plan: data.subscriptionPlan,
-        p_password_hash: passwordHash,
         p_internal_notes: data.internalNotes || null,
       }
     );
 
     if (rpcError) {
-      console.error("RPC error:", rpcError);
+      console.error("Approval RPC error:", rpcError);
       throw new Error(rpcError.message);
     }
 
-    if (!result || result.length === 0 || !result[0].success) {
-      throw new Error(result?.[0]?.message || "Failed to create restaurant");
-    }
+    const inviteLink = `${window.location.origin}/set-password?email=${encodeURIComponent(data.email)}`;
 
     return {
       success: true,
       restaurant: {
-        id: result[0].restaurant_id,
-        name: request.restaurant_name,
-        slug: slug,
+        id: rpcData.restaurant_id,
+        name: rpcData.restaurant_name,
+        slug: rpcData.slug,
       },
-      credentials: {
-        email: data.email,
-        password: tempPassword,
-        loginUrl: `${window.location.origin}/login`,
-      },
+      inviteLink,
+      email: data.email,
+      ownerName: rpcData.owner_name,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Create account error:", error);
+    const message = error instanceof Error ? error.message : "Failed to create account";
     return {
       success: false,
-      error: error.message || "Failed to create account",
+      error: message,
     };
   }
 };

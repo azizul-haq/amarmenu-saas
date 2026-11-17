@@ -6,6 +6,7 @@ import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import LandingPage from "./pages/public/LandingPage";
 import RegisterPage from "./pages/public/RegisterPage";
 import LoginPage from "./pages/public/LoginPage";
+import SetPasswordPage from "./pages/public/SetPasswordPage";
 
 // Restaurant dashboard
 import RestaurantDashboard from "./pages/restaurant/Dashboard";
@@ -29,6 +30,7 @@ function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/set-password" element={<SetPasswordPage />} />
 
           {/* Restaurant Dashboard Routes - Protected */}
           <Route

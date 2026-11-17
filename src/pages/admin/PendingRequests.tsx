@@ -25,6 +25,7 @@ import {
   subscribeToPendingRequests,
   createRestaurantAccount,
   rejectRegistrationRequest,
+  type ApprovalResult,
 } from "../../services/adminService";
 import type { RegistrationRequest } from "../../config/supabase";
 import { formatDateTime, copyToClipboard } from "../../utils/helpers";
@@ -38,7 +39,7 @@ const PendingRequests: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
-  const [credentials, setCredentials] = useState<any>(null);
+  const [approvalResult, setApprovalResult] = useState<ApprovalResult | null>(null);
 
   // Real-time subscription
   useEffect(() => {
@@ -219,9 +220,9 @@ const PendingRequests: React.FC = () => {
           setShowCreateModal(false);
           setSelectedRequest(null);
         }}
-        onSuccess={(creds) => {
+        onSuccess={(result) => {
           setShowCreateModal(false);
-          setCredentials(creds);
+          setApprovalResult(result);
           setShowCredentialsModal(true);
         }}
       />
@@ -236,13 +237,13 @@ const PendingRequests: React.FC = () => {
         }}
       />
 
-      {/* Credentials Display Modal */}
+      {/* Approval & Onboarding Display Modal */}
       <CredentialsModal
         isOpen={showCredentialsModal}
-        credentials={credentials}
+        result={approvalResult}
         onClose={() => {
           setShowCredentialsModal(false);
-          setCredentials(null);
+          setApprovalResult(null);
         }}
       />
     </div>
@@ -254,7 +255,7 @@ interface CreateAccountModalProps {
   isOpen: boolean;
   request: RegistrationRequest | null;
   onClose: () => void;
-  onSuccess: (credentials: any) => void;
+  onSuccess: (result: ApprovalResult) => void;
 }
 
 const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
@@ -303,8 +304,8 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
 
     setLoading(false);
 
-    if (result.success && result.credentials) {
-      onSuccess(result.credentials);
+    if (result.success) {
+      onSuccess(result);
     } else {
       setError(result.error || "Failed to create account");
     }
@@ -523,22 +524,23 @@ const RejectModal: React.FC<RejectModalProps> = ({
   );
 };
 
-// Credentials Display Modal
+// Onboarding & Invitation Display Modal
 interface CredentialsModalProps {
   isOpen: boolean;
-  credentials: any;
+  result: ApprovalResult | null;
   onClose: () => void;
 }
 
 const CredentialsModal: React.FC<CredentialsModalProps> = ({
   isOpen,
-  credentials,
+  result,
   onClose,
 }) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    const text = `Login Credentials:\n\nEmail: ${credentials?.email}\nPassword: ${credentials?.password}\nLogin URL: ${credentials?.loginUrl}`;
+    if (!result?.inviteLink) return;
+    const text = `AmarMenu Restaurant Onboarding:\n\nRestaurant: ${result.restaurant?.name}\nEmail: ${result.email}\nSet Password & Access Link:\n${result.inviteLink}`;
     const success = await copyToClipboard(text);
     if (success) {
       setCopied(true);
@@ -546,13 +548,13 @@ const CredentialsModal: React.FC<CredentialsModalProps> = ({
     }
   };
 
-  if (!credentials) return null;
+  if (!result) return null;
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Account Created Successfully!"
+      title="Restaurant Approved Successfully!"
       size="md"
     >
       <div className="space-y-6">
@@ -561,52 +563,60 @@ const CredentialsModal: React.FC<CredentialsModalProps> = ({
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/10 mb-4">
             <CheckCircle className="w-10 h-10 text-success" />
           </div>
-          <p className="text-text-secondary">
-            Restaurant account has been created and credentials have been sent.
+          <h3 className="text-lg font-bold text-text">
+            {result.restaurant?.name}
+          </h3>
+          <p className="text-sm text-text-secondary mt-1">
+            Account created without temporary passwords. The owner sets their own secure password via the link below.
           </p>
         </div>
 
-        {/* Credentials */}
+        {/* Invitation & Access Link */}
         <div className="bg-bg-subtle rounded-lg p-4 space-y-3">
-          <h4 className="font-semibold text-text mb-3">Login Credentials</h4>
-          <div className="space-y-2">
+          <h4 className="font-semibold text-text text-sm">
+            Owner Onboarding Details
+          </h4>
+          <div className="space-y-2 text-sm">
             <div>
-              <label className="text-xs text-text-secondary">Email</label>
-              <p className="font-mono text-text">{credentials.email}</p>
+              <label className="text-xs text-text-secondary">Owner Email</label>
+              <p className="font-mono text-text">{result.email}</p>
             </div>
             <div>
-              <label className="text-xs text-text-secondary">
-                Temporary Password
-              </label>
-              <p className="font-mono text-text font-bold">
-                {credentials.password}
+              <label className="text-xs text-text-secondary">Restaurant Slug</label>
+              <p className="font-mono text-accent font-medium">
+                {result.restaurant?.slug}
               </p>
             </div>
-            <div>
-              <label className="text-xs text-text-secondary">Login URL</label>
-              <p className="font-mono text-text text-sm break-all">
-                {credentials.loginUrl}
-              </p>
-            </div>
+            {result.inviteLink && (
+              <div>
+                <label className="text-xs text-text-secondary">
+                  Invitation & Set-Password URL
+                </label>
+                <div className="mt-1 p-2 bg-white rounded border border-border break-all font-mono text-xs text-accent">
+                  {result.inviteLink}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Copy Button */}
-        <Button
-          variant="outline"
-          fullWidth
-          icon={<Copy className="w-4 h-4" />}
-          onClick={handleCopy}
-        >
-          {copied ? "Copied!" : "Copy All Credentials"}
-        </Button>
+        {result.inviteLink && (
+          <Button
+            variant="outline"
+            fullWidth
+            icon={<Copy className="w-4 h-4" />}
+            onClick={handleCopy}
+          >
+            {copied ? "Copied to Clipboard!" : "Copy Onboarding Link"}
+          </Button>
+        )}
 
         {/* Info */}
         <div className="bg-accent-secondary/10 border border-accent-secondary/20 rounded-lg p-3 text-sm">
           <AlertCircle className="w-4 h-4 text-accent-secondary inline mr-2" />
           <span className="text-text-secondary">
-            These credentials have been sent to the restaurant via their
-            selected channels (SMS/WhatsApp/Email).
+            Share this link via WhatsApp, SMS, or Email. When the owner opens this link, they will choose their permanent password and directly enter their restaurant dashboard.
           </span>
         </div>
 

@@ -165,6 +165,7 @@ export interface RestaurantTable {
   table_number: string;
   capacity: number;
   qr_token: string;
+  status?: "available" | "occupied" | "reserved";
   is_active: boolean;
   deleted_at?: string | null;
   created_at: string;
@@ -176,6 +177,9 @@ export interface Order {
   restaurant_id: string;
   table_id?: string | null;
   order_number: string;
+  invoice_number?: string | null;
+  tendered_amount?: number | null;
+  change_amount?: number | null;
   order_type: "qr" | "counter" | "phone" | "table";
   table_number?: string;
   customer_name?: string;
@@ -222,6 +226,38 @@ export interface OrderItem {
   selected_addons?: { name: string; price: number }[];
   item_total: number;
   special_instructions?: string;
+}
+
+export interface OrderItemRecord {
+  id: string;
+  order_id: string;
+  restaurant_id: string;
+  menu_item_id?: string | null;
+  item_name: string;
+  quantity: number;
+  unit_price: number;
+  size_name?: string | null;
+  size_price: number;
+  addons?: { name: string; price: number }[];
+  addons_price: number;
+  item_total: number;
+  special_instructions?: string | null;
+  created_at: string;
+}
+
+export interface Payment {
+  id: string;
+  restaurant_id: string;
+  order_id: string;
+  payment_method: "cash" | "card" | "bkash" | "nagad" | "other" | string;
+  amount: number;
+  tendered_amount: number;
+  change_amount: number;
+  status: "paid" | "refunded" | "failed";
+  collected_by?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface AdminUser {

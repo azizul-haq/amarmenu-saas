@@ -12,6 +12,8 @@ import {
   Check,
   Calendar,
   Printer,
+  Receipt,
+  DollarSign,
 } from "lucide-react";
 import {
   Card,
@@ -27,8 +29,12 @@ import {
   updateOrderStatus,
   recordKOTPrint,
 } from "../../services/restaurantService";
+import type { BillSettlementResult } from "../../services/restaurantService";
 import { KOTReceipt } from "../../components/restaurant/KOTReceipt";
-import type { Order, OrderItem } from "../../config/supabase";
+import { BillReceiptModal } from "../../components/restaurant/BillReceiptModal";
+import { SettleBillModal } from "../../components/restaurant/SettleBillModal";
+import type { Order, OrderItem, Restaurant } from "../../config/supabase";
+import { supabase } from "../../config/supabase";
 import { formatDateTime, formatCurrency, playSound } from "../../utils/helpers";
 
 const Orders: React.FC = () => {
@@ -39,7 +45,10 @@ const Orders: React.FC = () => {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
+  const [settleOrder, setSettleOrder] = useState<Order | null>(null);
+  const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const [restaurantName, setRestaurantName] = useState("Restaurant");
+  const [restaurantData, setRestaurantData] = useState<Restaurant | null>(null);
   const previousOrdersRef = useRef<Order[]>([]);
 
   useEffect(() => {
@@ -52,6 +61,16 @@ const Orders: React.FC = () => {
 
     const { id: restaurantId, name } = JSON.parse(currentRestaurant);
     if (name) setRestaurantName(name);
+
+    // Fetch full restaurant details (VAT BIN, trade license, etc.)
+    supabase
+      .from("restaurants")
+      .select("*")
+      .eq("id", restaurantId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setRestaurantData(data as Restaurant);
+      });
 
     // Subscribe to real-time orders
     const subscription = subscribeToOrders(restaurantId, (newOrders) => {
@@ -255,9 +274,16 @@ const Orders: React.FC = () => {
                     <div className="flex items-center space-x-3">
                       {getStatusIcon(order.status)}
                       <div>
-                        <h3 className="text-lg font-bold text-text">
-                          Order #{order.order_number}
-                        </h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-bold text-text">
+                            Order #{order.order_number}
+                          </h3>
+                          {order.invoice_number && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold border border-emerald-300">
+                              {order.invoice_number}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-text-secondary">
                           {formatDateTime(order.created_at)}
                         </p>
@@ -425,17 +451,18 @@ const Orders: React.FC = () => {
                     </>
                   )}
 
-                  {/* Ready: Waiter Serve & Complete */}
+                  {/* Ready: Settle Bill & Complete */}
                   {order.status === "ready" && (
                     <>
                       <Button
                         variant="secondary"
                         size="sm"
                         fullWidth
-                        className="font-bold bg-green-600 text-white hover:bg-green-700"
-                        onClick={() => handleStatusUpdate(order.id, "completed")}
+                        className="font-bold bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-1.5 shadow-sm"
+                        onClick={() => setSettleOrder(order)}
                       >
-                        ✓ Mark Served & Paid
+                        <DollarSign className="w-4 h-4" />
+                        <span>Settle Bill & Complete</span>
                       </Button>
                       <Button
                         variant="outline"
@@ -449,6 +476,20 @@ const Orders: React.FC = () => {
                         Cancel
                       </Button>
                     </>
+                  )}
+
+                  {/* Completed: Print Customer Bill Receipt */}
+                  {order.status === "completed" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      fullWidth
+                      className="font-bold text-emerald-700 border-emerald-300 hover:bg-emerald-50 flex items-center justify-center gap-1.5"
+                      onClick={() => setReceiptOrder(order)}
+                    >
+                      <Receipt className="w-4 h-4" />
+                      <span>Print Bill Receipt</span>
+                    </Button>
                   )}
                 </div>
               </div>
@@ -487,6 +528,39 @@ const Orders: React.FC = () => {
           onPrint={async () => {
             await recordKOTPrint(printOrder.id);
           }}
+        />
+      )}
+
+      {/* Settle Bill Modal */}
+      {settleOrder && (
+        <SettleBillModal
+          order={settleOrder}
+          onClose={() => setSettleOrder(null)}
+          onSettled={(result: BillSettlementResult) => {
+            const updated: Order = {
+              ...settleOrder,
+              status: "completed",
+              invoice_number: result.invoice_number,
+              tendered_amount: result.tendered_amount,
+              change_amount: result.change_amount,
+              payment_method: result.payment_method,
+              completed_at: result.completed_at || result.settled_at,
+            };
+            setSettleOrder(null);
+            setOrders((prev) =>
+              prev.map((o) => (o.id === updated.id ? updated : o))
+            );
+            setReceiptOrder(updated);
+          }}
+        />
+      )}
+
+      {/* Bill Receipt Modal */}
+      {receiptOrder && (
+        <BillReceiptModal
+          order={receiptOrder}
+          restaurant={restaurantData}
+          onClose={() => setReceiptOrder(null)}
         />
       )}
     </div>
@@ -672,6 +746,34 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
             <span>{formatCurrency(order.total)}</span>
           </div>
         </div>
+
+        {/* Billing & Settlement Details */}
+        {order.invoice_number && (
+          <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 space-y-2 text-xs">
+            <div className="flex justify-between items-center pb-2 border-b border-emerald-200">
+              <span className="font-bold text-emerald-950">Fiscal Invoice Number</span>
+              <span className="font-mono font-bold text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-300">
+                {order.invoice_number}
+              </span>
+            </div>
+            <div className="flex justify-between text-gray-700">
+              <span>Payment Mode</span>
+              <span className="font-bold uppercase">{order.payment_method || "CASH"}</span>
+            </div>
+            {order.tendered_amount !== undefined && order.tendered_amount !== null && (
+              <>
+                <div className="flex justify-between text-gray-700">
+                  <span>Cash Received / Tendered</span>
+                  <span className="font-bold">{formatCurrency(order.tendered_amount)}</span>
+                </div>
+                <div className="flex justify-between font-bold text-emerald-800 pt-1 border-t border-emerald-200/60">
+                  <span>Change Returned</span>
+                  <span>{formatCurrency(order.change_amount || 0)}</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Notes */}
         {order.customer_notes && (

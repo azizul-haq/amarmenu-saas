@@ -1,5 +1,13 @@
 import { supabase } from "../config/supabase";
-import type { Order, OrderItem, MenuItem, MenuCategory, RestaurantTable } from "../config/supabase";
+import type {
+  Order,
+  OrderItem,
+  MenuItem,
+  MenuCategory,
+  RestaurantTable,
+  Payment,
+  OrderItemRecord,
+} from "../config/supabase";
 
 /**
  * Restaurant API Service
@@ -587,5 +595,78 @@ export const getCustomerOrder = async (
     error?: string;
   };
 };
+
+export interface BillSettlementResult {
+  order_id: string;
+  order_number: string;
+  invoice_number: string;
+  subtotal: number;
+  tax: number;
+  discount: number;
+  total: number;
+  payment_method: string;
+  tendered_amount: number;
+  change_amount: number;
+  settled_at: string;
+  completed_at?: string;
+}
+
+// Settle an order bill (Cashier / Owner)
+export const settleOrderBill = async (
+  orderId: string,
+  paymentMethod: string = "cash",
+  tenderedAmount: number,
+  discount: number = 0,
+  notes?: string
+): Promise<{
+  success: boolean;
+  data?: BillSettlementResult;
+  error?: string;
+}> => {
+  const { data, error } = await supabase.rpc("settle_order_bill", {
+    p_order_id: orderId,
+    p_payment_method: paymentMethod,
+    p_tendered_amount: tenderedAmount,
+    p_discount: discount,
+    p_notes: notes || null,
+  });
+
+  if (error || !data) {
+    return { success: false, error: error?.message || "Failed to settle bill" };
+  }
+
+  return { success: true, data: data as BillSettlementResult };
+};
+
+// Fetch payments for an order
+export const getOrderPayments = async (orderId: string): Promise<Payment[]> => {
+  const { data, error } = await supabase
+    .from("payments")
+    .select("*")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: false });
+
+  if (error || !data) {
+    return [];
+  }
+  return data as Payment[];
+};
+
+// Fetch normalized order items for an order
+export const getOrderItemsNormalized = async (
+  orderId: string
+): Promise<OrderItemRecord[]> => {
+  const { data, error } = await supabase
+    .from("order_items")
+    .select("*")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: true });
+
+  if (error || !data) {
+    return [];
+  }
+  return data as OrderItemRecord[];
+};
+
 
 

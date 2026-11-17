@@ -402,6 +402,20 @@ const TablesPage: React.FC = () => {
                           <span>{table.capacity} Persons</span>
                         </span>
                         <span className="text-text-secondary">•</span>
+                        {table.status === "occupied" ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">
+                            ● Occupied
+                          </span>
+                        ) : table.status === "reserved" ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-300">
+                            Reserved
+                          </span>
+                        ) : (
+                          <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            Available
+                          </span>
+                        )}
+                        <span className="text-text-secondary">•</span>
                         <span
                           className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                             table.is_active

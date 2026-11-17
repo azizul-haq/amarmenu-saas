@@ -231,13 +231,48 @@ export const deleteMenuItem = async (itemId: string) => {
   return !error;
 };
 
-// Create order (manual or from customer)
-export const createOrder = async (order: Partial<Order>) => {
-  const { data, error } = await supabase
-    .from("orders")
-    .insert([order])
-    .select()
-    .single();
+export interface PlaceOrderItemDTO {
+  menu_item_id: string;
+  name?: string;
+  quantity: number;
+  base_price?: number;
+  selected_size?: { name: string; price?: number };
+  selected_addons?: { name: string; price?: number }[];
+  client_price?: number;
+  item_total?: number;
+  special_instructions?: string;
+}
+
+export interface PlaceOrderDTO {
+  restaurant_id: string;
+  order_type: "qr" | "counter" | "table" | "phone";
+  customer_name: string;
+  customer_phone: string;
+  items: PlaceOrderItemDTO[];
+  customer_notes?: string;
+  table_id?: string;
+  table_number?: string;
+  qr_token?: string;
+  idempotency_key?: string;
+  subtotal?: number;
+  tax?: number;
+  total?: number;
+}
+
+// Create order using atomic server-side verification procedure
+export const createOrder = async (order: PlaceOrderDTO) => {
+  const { data, error } = await supabase.rpc("place_order", {
+    p_restaurant_id: order.restaurant_id,
+    p_order_type: order.order_type,
+    p_customer_name: order.customer_name,
+    p_customer_phone: order.customer_phone,
+    p_items: order.items,
+    p_customer_notes: order.customer_notes || null,
+    p_qr_token: order.qr_token || null,
+    p_idempotency_key: order.idempotency_key || null,
+    p_client_subtotal: order.subtotal ?? null,
+    p_client_total: order.total ?? null,
+  });
 
   return { data, error };
 };

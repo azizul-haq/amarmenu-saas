@@ -444,6 +444,7 @@ const CustomerMenu: React.FC = () => {
         restaurantId={restaurant.id}
         detectedTable={detectedTable}
         tableError={tableError}
+        qrToken={tableToken || undefined}
         onClose={() => setShowCheckout(false)}
         onSuccess={() => {
           setCart([]);
@@ -722,6 +723,7 @@ interface CheckoutModalProps {
   restaurantId: string;
   detectedTable?: { id: string; table_number: string; capacity: number } | null;
   tableError?: string | null;
+  qrToken?: string;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -732,6 +734,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
   restaurantId,
   detectedTable,
   tableError,
+  qrToken,
   onClose,
   onSuccess,
 }) => {
@@ -743,6 +746,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   // Synchronize detected table from QR
   useEffect(() => {
@@ -793,6 +797,8 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
         | "counter"
         | "table",
       table_number: orderType === "table" ? (detectedTable ? detectedTable.table_number : tableNumber) : undefined,
+      qr_token: detectedTable ? qrToken : undefined,
+      idempotency_key: idempotencyKey,
       customer_name: customerName,
       customer_phone: normalizeBDPhone(customerPhone),
       items: cart.map((item) => ({
@@ -833,6 +839,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
       setOrderType("table");
     }
     setNotes("");
+    setIdempotencyKey(crypto.randomUUID());
     setSuccess(false);
   };
 

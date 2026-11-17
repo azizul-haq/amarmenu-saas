@@ -9,7 +9,8 @@ import {
 } from "../schemas/onlinePaymentSchema";
 
 /**
- * Initiates an online payment session (bKash, SSLCOMMERZ, or Nagad)
+ * Initiates an online payment session (bKash, SSLCOMMERZ, or Nagad).
+ * Note: amount is taken directly from the database order row, never from a client parameter.
  */
 export const initiateOnlinePayment = async (
   orderId: string,
@@ -44,8 +45,8 @@ export const initiateOnlinePayment = async (
 };
 
 /**
- * Completes an online payment session atomically: updates session, generates fiscal invoice,
- * records payment in payments table, marks order paid & completed, and resets dine-in table.
+ * Completes an online payment via the server-side simulate-payment Edge Function.
+ * The client browser NEVER calls raw settlement RPCs directly.
  */
 export const completeOnlinePayment = async (
   sessionId: string,
@@ -61,20 +62,27 @@ export const completeOnlinePayment = async (
       payload,
     });
 
-    const { data, error } = await supabase.rpc("complete_online_payment", {
-      p_session_id: validated.session_id,
-      p_gateway_trx_id: validated.gateway_trx_id,
-      p_val_id: validated.val_id || null,
-      p_payload: validated.payload || {},
+    const { data, error } = await supabase.functions.invoke("simulate-payment", {
+      body: {
+        action: "complete",
+        session_id: validated.session_id,
+        gateway_trx_id: validated.gateway_trx_id,
+        val_id: validated.val_id || null,
+        payload: validated.payload || {},
+      },
     });
 
     if (error) {
       return { success: false, error: error.message };
     }
 
+    if (!data?.success) {
+      return { success: false, error: data?.error || "Payment simulation failed" };
+    }
+
     return {
       success: true,
-      data: data as PaymentCompletionResult,
+      data: data.data as PaymentCompletionResult,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to complete online payment";
@@ -83,7 +91,7 @@ export const completeOnlinePayment = async (
 };
 
 /**
- * Marks an online payment session as failed or cancelled
+ * Marks an online payment session as failed or cancelled via Edge Function.
  */
 export const failOnlinePayment = async (
   sessionId: string,
@@ -95,13 +103,20 @@ export const failOnlinePayment = async (
       reason,
     });
 
-    const { error } = await supabase.rpc("fail_online_payment", {
-      p_session_id: validated.session_id,
-      p_reason: validated.reason || null,
+    const { data, error } = await supabase.functions.invoke("simulate-payment", {
+      body: {
+        action: "fail",
+        session_id: validated.session_id,
+        reason: validated.reason || null,
+      },
     });
 
     if (error) {
       return { success: false, error: error.message };
+    }
+
+    if (!data?.success) {
+      return { success: false, error: data?.error || "Payment cancellation failed" };
     }
 
     return { success: true };

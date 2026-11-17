@@ -44,6 +44,9 @@ const OrderStatusPage: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
+  // In production builds, the simulator UI is hidden; live gateway redirect will take its place in future chunks
+  const isSimulatorEnabled = !import.meta.env.PROD || import.meta.env.VITE_ENABLE_PAYMENT_SIMULATOR === "true";
+
   const fetchStatus = async () => {
     if (!orderId) return;
 
@@ -442,39 +445,55 @@ const OrderStatusPage: React.FC = () => {
             </button>
           </div>
         ) : !isCancelled ? (
-          <div className="bg-gradient-to-r from-pink-500/10 via-purple-500/10 to-indigo-500/10 border border-pink-200 rounded-2xl p-5 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-accent animate-pulse" />
-                <h3 className="text-sm font-bold text-gray-900">
-                  {lang === "bn" ? "অনলাইনে সরাসরি পেমেন্ট করুন" : "Pay Bill Online"}
-                </h3>
+          isSimulatorEnabled ? (
+            <div className="bg-gradient-to-r from-pink-500/10 via-purple-500/10 to-indigo-500/10 border border-pink-200 rounded-2xl p-5 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-accent animate-pulse" />
+                  <h3 className="text-sm font-bold text-gray-900">
+                    {lang === "bn" ? "অনলাইনে সরাসরি পেমেন্ট করুন" : "Pay Bill Online"}
+                  </h3>
+                </div>
+                <span className="text-xs font-black text-accent">{formatCurrency(order.total)}</span>
               </div>
-              <span className="text-xs font-black text-accent">{formatCurrency(order.total)}</span>
-            </div>
 
-            <p className="text-xs text-gray-600">
-              {lang === "bn"
-                ? "বিকাশ, নগদ বা ডেবিট/ক্রেডিট কার্ড দিয়ে সহজেই আপনার বিল সরাসরি পরিশোধ করুন।"
-                : "Fast & secure digital payment via bKash, Nagad, or Cards (SSLCOMMERZ)."}
-            </p>
-
-            <button
-              onClick={() => setShowPaymentModal(true)}
-              className="w-full py-3 px-4 bg-[#E2136E] hover:bg-[#C2105D] text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
-            >
-              <CreditCard className="w-4 h-4" />
-              <span>
+              <p className="text-xs text-gray-600">
                 {lang === "bn"
-                  ? `বিকাশ / কার্ড দিয়ে পে করুন (${formatCurrency(order.total)})`
-                  : `Pay Online with bKash / Card (${formatCurrency(order.total)})`}
-              </span>
-            </button>
-          </div>
+                  ? "বিকাশ, নগদ বা ডেবিট/ক্রেডিট কার্ড দিয়ে সহজেই আপনার বিল সরাসরি পরিশোধ করুন।"
+                  : "Fast & secure digital payment via bKash, Nagad, or Cards (SSLCOMMERZ)."}
+              </p>
+
+              <button
+                onClick={() => setShowPaymentModal(true)}
+                className="w-full py-3 px-4 bg-[#E2136E] hover:bg-[#C2105D] text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
+              >
+                <CreditCard className="w-4 h-4" />
+                <span>
+                  {lang === "bn"
+                    ? `বিকাশ / কার্ড দিয়ে পে করুন (${formatCurrency(order.total)})`
+                    : `Pay Online with bKash / Card (${formatCurrency(order.total)})`}
+                </span>
+              </button>
+            </div>
+          ) : (
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5 shadow-sm space-y-2 text-center">
+              <div className="inline-flex p-2.5 rounded-full bg-accent/10 text-accent mb-1">
+                <CreditCard className="w-5 h-5" />
+              </div>
+              <h3 className="text-sm font-bold text-gray-900">
+                {lang === "bn" ? "কাউন্টারে বিল পরিশোধ করুন" : "Pay at Counter"}
+              </h3>
+              <p className="text-xs text-gray-500 max-w-sm mx-auto">
+                {lang === "bn"
+                  ? "অনুগ্রহ করে খাবার পরিবেশন শেষে কাউন্টারে ক্যাশ বা কার্ডে বিল পরিশোধ করুন।"
+                  : "Please settle your bill with cash or card directly at the restaurant counter after dining."}
+              </p>
+            </div>
+          )
         ) : null}
 
         {/* Online Payment Modal */}
-        {showPaymentModal && restaurant && (
+        {showPaymentModal && restaurant && isSimulatorEnabled && (
           <OnlinePaymentModal
             orderId={order.id}
             orderNumber={order.order_number}

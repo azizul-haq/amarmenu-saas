@@ -178,6 +178,7 @@ describe("Chunk 15: Cash Drawer Shifts, EOD Z-Report & Cash Reconciliation", () 
 
       const closeRes = await closeCashShift(shiftId, countedCash, "Short by 150 due to missing change");
       expect(closeRes.success).toBe(true);
+      expect(closeRes.data?.cash_reconciliation.expected_cash).toBe(expectedCash);
       expect(closeRes.data?.cash_reconciliation.has_shortage).toBe(true);
       expect(closeRes.data?.cash_reconciliation.discrepancy).toBe(-150);
       expect(closeRes.data?.cash_reconciliation.actual_cash_counted).toBe(1850);
@@ -194,6 +195,7 @@ describe("Chunk 15: Cash Drawer Shifts, EOD Z-Report & Cash Reconciliation", () 
 
       const closeRes = await closeCashShift(shiftId, countedCash, "Overage of 120 tips left in drawer");
       expect(closeRes.success).toBe(true);
+      expect(closeRes.data?.cash_reconciliation.expected_cash).toBe(expectedCash);
       expect(closeRes.data?.cash_reconciliation.has_overage).toBe(true);
       expect(closeRes.data?.cash_reconciliation.discrepancy).toBe(120);
       expect(closeRes.data?.cash_reconciliation.actual_cash_counted).toBe(1120);

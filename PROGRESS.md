@@ -15,8 +15,9 @@
 | **2** | **BD Localization (Core)** | **Done** | ₹ → ৳, BD mobile regex + E.164 normalization (+8801XXXXXXXXX), Asia/Dhaka timezone formatting, configurable VAT rate, bKash/Nagad payment labels, 20 unit tests via Vitest. |
 | **3** | **Core Schema v1** | **Done** | Versioned migration (20261117000001_core_schema_v1.sql) applied to remote DB with zero data loss. Added restaurants BD columns (VAT BIN, trade license, currency ৳), restaurant_staff, platform_admins, plans (Starter/Growth/Enterprise), subscriptions backfilled, updated TypeScript interfaces. |
 | **4** | **Auth & Route Protection** | **Done** | Implemented official Supabase Auth (`AuthProvider`, `useAuth`, `ProtectedRoute`). Protected `/admin/*` (super_admin only) and `/restaurant/*` (staff only) with redirect to login. Migrated Admin & Restaurant Login to Supabase Auth. Uninstalled `crypto-js` and `@types/crypto-js`. Replaced client hash with native Web Crypto SHA-256 fallback. Seeded and verified `admin@foodorder.com` and `testowner@amarmenu.com`. |
+| **5** | **Tenant RLS + Isolation Tests** | **Done** | Implemented strict multi-tenant RLS policies on all tables (`orders`, `menu_items`, `menu_categories`, `subscriptions`, `restaurant_staff`, `restaurants`). Created `current_restaurant_id()` and `is_super_admin()` helper functions. Revoked anon execute on admin procedures and dropped legacy RPC logins. Added 10 automated RLS integration tests in `src/tests/rls.test.ts` verifying Restaurant A cannot view/edit Restaurant B's data, anon cannot access orders, and super admin has full visibility (30/30 total tests pass). |
 
-### Current Chunk: Ready for Chunk 5
+### Current Chunk: Ready for Chunk 6
 
 ---
 
@@ -27,6 +28,7 @@
 * **ADR-004 (Phone Numbers)**: Validated against Bangladeshi mobile format (`^(\+8801|01)[3-9]\d{8}$`) and normalized to `+8801XXXXXXXXX`.
 * **ADR-005 (Zero `any` Types)**: Strict TypeScript validation. Form inputs validated via Zod schemas.
 * **ADR-006 (Supabase Auth & Session Handling)**: Authentication is driven via Supabase GoTrue Auth with JWT tokens. Role resolution is evaluated from `platform_admins` and `restaurant_staff` tables in `AuthContext`. Route protection is enforced via `ProtectedRoute`.
+* **ADR-007 (Tenant Row Level Security)**: All database queries must run under Postgres RLS. Public anon clients can only view active menus and submit customer orders. Authenticated restaurant staff are strictly constrained to `restaurant_id = current_restaurant_id()`. Super admins are granted platform-wide oversight via `is_super_admin()`.
 
 ---
 
@@ -71,5 +73,5 @@ The following issues were identified during code inspection:
 2. ~~**Session Storage Insecurity**~~: **Resolved in Chunk 4**. Sessions managed via Supabase GoTrue Auth JWT tokens with automatic refresh.
 3. ~~**Missing Route Guards**~~: **Resolved in Chunk 4**. `ProtectedRoute` guards `/admin/*` (super_admin only) and `/restaurant/*` (staff roles only). Direct browser URL entry is protected.
 4. ~~**Indian Currency & Phone Format Defaults**~~: **Resolved in Chunk 2**. BDT `৳` and BD phone regex implemented.
-5. **Blanket RLS Policies**: Database RLS currently permits open reads/writes on some tables (`USING (true)`). Must be tightened to tenant-specific policies.
+5. ~~**Blanket RLS Policies**~~: **Resolved in Chunk 5**. Strict tenant-scoped RLS policies deployed across all database tables with automated multi-tenant verification tests.
 6. **No Form Validation Schemas**: Registration, login, and item creation lack runtime validation with Zod.

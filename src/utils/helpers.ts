@@ -45,22 +45,26 @@ export const generateTempPassword = (): string => {
 };
 
 /**
- * Calculate order totals
+ * Calculate order totals with configurable VAT rate
  */
-export const calculateOrderTotals = (items: any[]) => {
-  const subtotal = items.reduce((sum, item) => sum + item.item_total, 0);
-  const tax = subtotal * APP_CONFIG.taxRate;
+export const calculateOrderTotals = (
+  items: any[],
+  vatRate: number = APP_CONFIG.taxRate
+) => {
+  const subtotal = items.reduce((sum, item) => sum + (item.item_total || 0), 0);
+  const tax = subtotal * vatRate;
   const total = subtotal + tax;
 
   return { subtotal, tax, total };
 };
 
 /**
- * Format date and time
+ * Format date and time in Asia/Dhaka timezone
  */
 export const formatDateTime = (dateString: string): string => {
   const date = new Date(dateString);
-  return new Intl.DateTimeFormat("en-IN", {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Dhaka",
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -72,7 +76,8 @@ export const formatDateTime = (dateString: string): string => {
 
 export const formatDate = (dateString: string): string => {
   const date = new Date(dateString);
-  return new Intl.DateTimeFormat("en-IN", {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Dhaka",
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -81,7 +86,8 @@ export const formatDate = (dateString: string): string => {
 
 export const formatTime = (dateString: string): string => {
   const date = new Date(dateString);
-  return new Intl.DateTimeFormat("en-IN", {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Dhaka",
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
@@ -97,11 +103,33 @@ export const isValidEmail = (email: string): boolean => {
 };
 
 /**
- * Validate phone number (Indian format)
+ * Validate phone number (Bangladeshi mobile format)
+ * Accepts: 01XXXXXXXXX, +8801XXXXXXXXX, 8801XXXXXXXXX with optional spaces/hyphens
  */
 export const isValidPhone = (phone: string): boolean => {
-  const re = /^[6-9]\d{9}$/;
-  return re.test(phone.replace(/[\s\-()]/g, ""));
+  if (!phone) return false;
+  const cleaned = phone.replace(/[\s\-()]/g, "");
+  return /^(\+?8801|01)[3-9]\d{8}$/.test(cleaned);
+};
+
+/**
+ * Normalize Bangladeshi phone number to E.164 format: +8801XXXXXXXXX
+ */
+export const normalizeBDPhone = (phone: string): string => {
+  const cleaned = phone.replace(/[\s\-()]/g, "");
+  if (!isValidPhone(cleaned)) {
+    return cleaned;
+  }
+  if (cleaned.startsWith("+880")) {
+    return cleaned;
+  }
+  if (cleaned.startsWith("880")) {
+    return `+${cleaned}`;
+  }
+  if (cleaned.startsWith("0")) {
+    return `+88${cleaned}`;
+  }
+  return cleaned;
 };
 
 /**

@@ -9,9 +9,9 @@ export const SUPABASE_ANON_KEY =
 
 // Application Configuration
 export const APP_CONFIG = {
-  appName: "FoodOrder",
-  defaultCurrency: "₹",
-  taxRate: 0.05, // 5% GST
+  appName: "AmarMenu",
+  defaultCurrency: "৳",
+  taxRate: 0.05, // 5% NBR VAT (standard for restaurants in Bangladesh)
   orderPrefix: "ORD",
 
   // Subscription plans
@@ -90,7 +90,7 @@ export const APP_CONFIG = {
   },
 
   // Payment methods
-  paymentMethods: ["Cash", "UPI", "Card", "Other"],
+  paymentMethods: ["Cash", "bKash", "Nagad", "Card", "Other"],
 
   // Registration sources
   heardFromOptions: [

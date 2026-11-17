@@ -12,8 +12,9 @@
 | Chunk | Title | Status | Summary |
 | :---: | :--- | :---: | :--- |
 | **1** | **Baseline Cleanup & Setup** | **Done** | Initialized git, fixed `.gitignore`, set up `supabase/migrations/20261117000000_baseline.sql`, updated `.env.example`, documented all `any` usages and known debt. |
+| **2** | **BD Localization (Core)** | **Done** | ₹ → ৳, BD mobile regex + E.164 normalization (+8801XXXXXXXXX), Asia/Dhaka timezone formatting, configurable VAT rate, bKash/Nagad payment labels, 20 unit tests via Vitest. |
 
-### Current Chunk: Ready for Chunk 2
+### Current Chunk: Ready for Chunk 3
 
 ---
 

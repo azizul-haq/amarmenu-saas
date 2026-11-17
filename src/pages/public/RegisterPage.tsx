@@ -11,7 +11,7 @@ import {
 } from "../../components/ui";
 import { APP_CONFIG } from "../../config/config";
 import { supabase } from "../../config/supabase";
-import { isValidEmail, isValidPhone } from "../../utils/helpers";
+import { isValidEmail, isValidPhone, normalizeBDPhone } from "../../utils/helpers";
 
 interface FormData {
   restaurant_name: string;
@@ -57,7 +57,7 @@ const RegisterPage: React.FC = () => {
     if (!formData.phone.trim()) {
       newErrors.phone = "Phone number is required";
     } else if (!isValidPhone(formData.phone)) {
-      newErrors.phone = "Please enter a valid 10-digit phone number";
+      newErrors.phone = "Please enter a valid Bangladeshi phone number (e.g. 01712345678)";
     }
 
     if (!formData.email.trim()) {
@@ -96,7 +96,7 @@ const RegisterPage: React.FC = () => {
           {
             restaurant_name: formData.restaurant_name.trim(),
             owner_name: formData.owner_name.trim(),
-            phone: formData.phone.replace(/[\s\-()]/g, ""),
+            phone: normalizeBDPhone(formData.phone),
             email: formData.email.trim() || null,
             city: formData.city.trim(),
             address: formData.address.trim() || null,
@@ -302,7 +302,7 @@ const RegisterPage: React.FC = () => {
                     value={formData.phone}
                     onChange={handleChange}
                     error={errors.phone}
-                    placeholder="10-digit mobile number"
+                    placeholder="e.g. 01712345678"
                     required
                   />
 

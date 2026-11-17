@@ -22,7 +22,7 @@ import {
   createOrder,
 } from "../../services/restaurantService";
 import type { MenuItem } from "../../config/supabase";
-import { formatCurrency, isValidPhone } from "../../utils/helpers";
+import { formatCurrency, isValidPhone, normalizeBDPhone } from "../../utils/helpers";
 import { supabase } from "../../config/supabase";
 
 interface CartItem extends MenuItem {
@@ -690,7 +690,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
     }
 
     if (!isValidPhone(customerPhone)) {
-      setError("Please enter a valid 10-digit phone number");
+      setError("Please enter a valid Bangladeshi phone number (e.g. 01712345678)");
       return;
     }
 
@@ -708,7 +708,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
         | "counter",
       table_number: orderType === "table" ? tableNumber : undefined,
       customer_name: customerName,
-      customer_phone: customerPhone,
+      customer_phone: normalizeBDPhone(customerPhone),
       items: cart.map((item) => ({
         menu_item_id: item.id,
         name: item.name,
@@ -827,7 +827,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
           type="tel"
           value={customerPhone}
           onChange={(e) => setCustomerPhone(e.target.value)}
-          placeholder="10-digit mobile number"
+          placeholder="e.g. 01712345678"
           required
           helperText="We'll use this to contact you about your order"
         />

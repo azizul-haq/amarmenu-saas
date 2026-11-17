@@ -2,11 +2,12 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Shield, ArrowLeft, Mail, Lock } from "lucide-react";
 import { Button, Input, Alert, Card } from "../../components/ui";
-import { supabase } from "../../config/supabase";
-import { isValidEmail, hashPassword } from "../../utils/helpers";
+import { useAuth } from "../../context/AuthContext";
+import { isValidEmail } from "../../utils/helpers";
 
 const AdminLogin: React.FC = () => {
   const navigate = useNavigate();
+  const { signIn, signOut } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
@@ -31,46 +32,27 @@ const AdminLogin: React.FC = () => {
     setLoading(true);
 
     try {
-      // Hash password and use RPC function for admin login
-      const passwordHash = await hashPassword(formData.password);
-      const { data: adminData, error: adminError } = await supabase.rpc(
-        "admin_login",
-        {
-          p_email: formData.email.toLowerCase(),
-          p_password_hash: passwordHash,
-        }
-      );
+      const result = await signIn(formData.email, formData.password);
 
-      if (adminError) {
-        console.error("Admin login RPC error:", adminError);
-        setError("Invalid email or password");
+      if (!result.success) {
+        setError(result.error || "Invalid email or password");
         setLoading(false);
         return;
       }
 
-      if (!adminData || adminData.length === 0) {
-        setError("Invalid email or password");
+      if (result.role !== "super_admin") {
+        await signOut();
+        setError("Access denied: You do not have platform administrator privileges.");
         setLoading(false);
         return;
       }
 
-      const admin = adminData[0];
-
-      // Login successful - store admin data
-      localStorage.setItem(
-        "admin",
-        JSON.stringify({
-          id: admin.id,
-          email: admin.email,
-          name: admin.name,
-        })
-      );
-
-      // Redirect to admin dashboard
+      // Check role - if logged in as super_admin, proceed to /admin
       navigate("/admin");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Admin login error:", err);
-      setError("An error occurred. Please try again.");
+      const message = err instanceof Error ? err.message : "An error occurred. Please try again.";
+      setError(message);
     } finally {
       setLoading(false);
     }

@@ -4,10 +4,12 @@ import { Store, ArrowLeft, Mail, Lock, AlertCircle } from "lucide-react";
 import { Button, Input, Alert, Card } from "../../components/ui";
 import { APP_CONFIG } from "../../config/config";
 import { supabase } from "../../config/supabase";
-import { isValidEmail, hashPassword } from "../../utils/helpers";
+import { useAuth } from "../../context/AuthContext";
+import { isValidEmail } from "../../utils/helpers";
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const { signIn, signOut } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
@@ -32,45 +34,15 @@ const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
-      // Use RPC function for restaurant login (bypasses RLS issues)
-      const passwordHash = await hashPassword(formData.password);
-      console.log(
-        "Attempting login with:",
-        formData.email,
-        "hash:",
-        passwordHash.substring(0, 10) + "..."
-      );
+      const result = await signIn(formData.email, formData.password);
 
-      const { data: loginData, error: loginError } = await supabase.rpc(
-        "restaurant_login",
-        {
-          p_email: formData.email.toLowerCase(),
-          p_password_hash: passwordHash,
-        }
-      );
-
-      console.log("Login response:", { data: loginData, error: loginError });
-
-      if (loginError) {
-        console.error("Login RPC error:", loginError);
-        // Show detailed error message
-        setError(
-          `Login failed: ${
-            loginError.message ||
-            "Please ensure the restaurant_login function exists in your database"
-          }`
-        );
-        setLoading(false);
-        return;
-      }
-
-      if (!loginData || loginData.length === 0) {
+      if (!result.success) {
         // Check if registration is still pending
         const { data: registrationData } = await supabase
           .from("registration_requests")
           .select("status")
           .eq("email", formData.email.toLowerCase())
-          .single();
+          .maybeSingle();
 
         if (registrationData && registrationData.status === "pending") {
           setError("pending");
@@ -78,49 +50,32 @@ const LoginPage: React.FC = () => {
           return;
         }
 
-        setError("Invalid email or password");
+        setError(result.error || "Invalid email or password");
         setLoading(false);
         return;
       }
 
-      const userData = loginData[0];
-
-      // Check if restaurant is active
-      if (!userData.restaurant_is_active) {
-        setError(
-          "Your restaurant account has been deactivated. Please contact support."
-        );
-        setLoading(false);
+      if (result.role === "super_admin") {
+        navigate("/admin");
         return;
       }
 
-      // Login successful - store user data in localStorage
-      localStorage.setItem(
-        "user",
-        JSON.stringify({
-          id: userData.id,
-          email: userData.email,
-          role: userData.role,
-          restaurant_id: userData.restaurant_id,
-          restaurant: {
-            name: userData.restaurant_name,
-            slug: userData.restaurant_slug,
-            is_active: userData.restaurant_is_active,
-          },
-          temp_password: userData.temp_password,
-        })
-      );
+      if (
+        result.role &&
+        ["owner", "manager", "cashier", "kitchen", "waiter"].includes(result.role)
+      ) {
+        navigate("/restaurant");
+        return;
+      }
 
-      // Redirect to restaurant dashboard
-      navigate("/restaurant");
-    } catch (err: any) {
+      // No role found
+      await signOut();
+      setError("No active restaurant account associated with this login.");
+    } catch (err: unknown) {
       console.error("Login error:", err);
-      // Show detailed error for debugging
-      const errorMsg =
-        err?.message ||
-        err?.toString() ||
-        "Network error. Please check your connection.";
-      setError(`Error: ${errorMsg}`);
+      const message =
+        err instanceof Error ? err.message : "Network error. Please check your connection.";
+      setError(`Error: ${message}`);
     } finally {
       setLoading(false);
     }
@@ -180,10 +135,10 @@ const LoginPage: React.FC = () => {
             <div className="text-sm text-blue-700 space-y-1">
               <p>
                 <span className="font-medium">Email:</span>{" "}
-                demorestaurant@gmail.com
+                testowner@amarmenu.com
               </p>
               <p>
-                <span className="font-medium">Password:</span> ATVSW679
+                <span className="font-medium">Password:</span> password123
               </p>
             </div>
           </div>

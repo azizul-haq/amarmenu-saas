@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   useNavigate,
   Routes,
@@ -15,6 +15,7 @@ import {
   FileText,
   Settings,
 } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 import RestaurantHome from "./RestaurantHome";
 import Orders from "./Orders";
 import Menu from "./Menu";
@@ -24,31 +25,12 @@ import RestaurantSettings from "./RestaurantSettings";
 const RestaurantDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [user, setUser] = useState<any>(null);
-  const [restaurant, setRestaurant] = useState<any>(null);
+  const { user, profile, restaurant, signOut } = useAuth();
 
-  useEffect(() => {
-    const userData = localStorage.getItem("user");
-    if (!userData) {
-      navigate("/login");
-    } else {
-      const parsedUser = JSON.parse(userData);
-      setUser(parsedUser);
-      setRestaurant(
-        parsedUser.restaurant || {
-          name: "Demo Restaurant",
-          slug: "demo-restaurant",
-        }
-      );
-    }
-  }, [navigate]);
-
-  const handleLogout = () => {
-    localStorage.removeItem("user");
+  const handleLogout = async () => {
+    await signOut();
     navigate("/login");
   };
-
-  if (!user) return null;
 
   const navItems = [
     { path: "/restaurant", icon: LayoutDashboard, label: "Dashboard" },
@@ -70,7 +52,9 @@ const RestaurantDashboard: React.FC = () => {
                 <h1 className="text-lg font-bold text-text">
                   {restaurant?.name || "Restaurant"}
                 </h1>
-                <p className="text-xs text-text-secondary">{user.email}</p>
+                <p className="text-xs text-text-secondary">
+                  {profile?.full_name ? `${profile.full_name} (${user?.email})` : user?.email}
+                </p>
               </div>
             </div>
             <button

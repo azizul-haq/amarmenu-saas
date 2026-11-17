@@ -133,13 +133,18 @@ export const normalizeBDPhone = (phone: string): string => {
 };
 
 /**
- * Hash password using SHA-256
- * Works on both HTTP and HTTPS (mobile and desktop)
+ * Hash password using Web Crypto SHA-256 (replaces legacy crypto-js)
+ * Note: Used only for legacy compatibility during migration; Supabase Auth bcrypt is used for all new accounts.
  */
 export const hashPassword = async (password: string): Promise<string> => {
-  // Use crypto-js for consistent hashing across all platforms
-  const CryptoJS = (await import("crypto-js")).default;
-  return CryptoJS.SHA256(password).toString(CryptoJS.enc.Hex);
+  if (typeof crypto !== "undefined" && crypto.subtle) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  return password;
 };
 
 /**

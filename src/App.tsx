@@ -1,4 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider } from "./context/AuthContext";
+import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 
 // Public pages
 import LandingPage from "./pages/public/LandingPage";
@@ -21,26 +23,45 @@ import NotFoundPage from "./pages/NotFoundPage";
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="/login" element={<LoginPage />} />
+      <AuthProvider>
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/login" element={<LoginPage />} />
 
-        {/* Restaurant Dashboard Routes */}
-        <Route path="/restaurant/*" element={<RestaurantDashboard />} />
+          {/* Restaurant Dashboard Routes - Protected */}
+          <Route
+            path="/restaurant/*"
+            element={
+              <ProtectedRoute
+                allowedRoles={["owner", "manager", "cashier", "kitchen", "waiter"]}
+                fallbackPath="/login"
+              >
+                <RestaurantDashboard />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* Admin Panel Routes */}
-        <Route path="/admin/login" element={<AdminLogin />} />
-        <Route path="/admin/*" element={<AdminDashboard />} />
+          {/* Admin Panel Routes - Protected */}
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route
+            path="/admin/*"
+            element={
+              <ProtectedRoute allowedRoles={["super_admin"]} fallbackPath="/admin/login">
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* Customer Ordering Route */}
-        <Route path="/menu/:slug" element={<CustomerMenu />} />
+          {/* Customer Ordering Route */}
+          <Route path="/menu/:slug" element={<CustomerMenu />} />
 
-        {/* 404 */}
-        <Route path="/404" element={<NotFoundPage />} />
-        <Route path="*" element={<Navigate to="/404" replace />} />
-      </Routes>
+          {/* 404 */}
+          <Route path="/404" element={<NotFoundPage />} />
+          <Route path="*" element={<Navigate to="/404" replace />} />
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

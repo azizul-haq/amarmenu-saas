@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   useNavigate,
   Routes,
@@ -14,6 +14,7 @@ import {
   Store as StoreIcon,
   BarChart3,
 } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 import DashboardHome from "./DashboardHome";
 import PendingRequests from "./PendingRequests";
 import AllRestaurants from "./AllRestaurants";
@@ -22,23 +23,12 @@ import Analytics from "./Analytics";
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [admin, setAdmin] = useState<any>(null);
+  const { platformAdmin, user, signOut } = useAuth();
 
-  useEffect(() => {
-    const adminData = localStorage.getItem("admin");
-    if (!adminData) {
-      navigate("/admin/login");
-    } else {
-      setAdmin(JSON.parse(adminData));
-    }
-  }, [navigate]);
-
-  const handleLogout = () => {
-    localStorage.removeItem("admin");
+  const handleLogout = async () => {
+    await signOut();
     navigate("/admin/login");
   };
-
-  if (!admin) return null;
 
   const navItems = [
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
@@ -57,7 +47,9 @@ const AdminDashboard: React.FC = () => {
               <Shield className="w-8 h-8 text-accent" />
               <div>
                 <h1 className="text-lg font-bold text-text">Admin Panel</h1>
-                <p className="text-xs text-text-secondary">{admin.email}</p>
+                <p className="text-xs text-text-secondary">
+                  {platformAdmin?.email || user?.email || "Super Admin"}
+                </p>
               </div>
             </div>
             <button

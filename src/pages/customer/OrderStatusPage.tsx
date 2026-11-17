@@ -13,11 +13,15 @@ import {
   Copy,
   Check,
   RefreshCw,
+  CreditCard,
+  Printer,
+  Sparkles,
 } from "lucide-react";
 import { getCustomerOrder } from "../../services/restaurantService";
 import type { Order, OrderItem } from "../../config/supabase";
 import { formatCurrency, formatDateTime } from "../../utils/helpers";
 import { Card, Button, Loading } from "../../components/ui";
+import { OnlinePaymentModal } from "../../components/customer/OnlinePaymentModal";
 
 const OrderStatusPage: React.FC = () => {
   const { orderId } = useParams<{ orderId: string }>();
@@ -38,6 +42,7 @@ const OrderStatusPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [lang, setLang] = useState<"en" | "bn">("en");
   const [copied, setCopied] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   const fetchStatus = async () => {
     if (!orderId) return;
@@ -393,6 +398,95 @@ const OrderStatusPage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Online Payment / Invoice Status Section */}
+        {order.payment_status === "paid" ? (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-emerald-600" />
+                <span className="text-sm font-bold text-emerald-900">
+                  {lang === "bn" ? "বিল পরিশোধিত ও সম্পন্ন" : "Bill Paid & Settled"}
+                </span>
+              </div>
+              <span className="px-2.5 py-0.5 bg-emerald-600 text-white text-[11px] font-bold rounded-full uppercase">
+                {order.payment_method || "Paid"}
+              </span>
+            </div>
+
+            <div className="bg-white/80 rounded-xl p-3 text-xs space-y-1.5 border border-emerald-100">
+              {order.invoice_number && (
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500 font-medium">{lang === "bn" ? "ইনভয়েস নং:" : "Invoice Number:"}</span>
+                  <span className="font-mono font-bold text-emerald-800">{order.invoice_number}</span>
+                </div>
+              )}
+              {order.payment_transaction_id && (
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500 font-medium">{lang === "bn" ? "ট্রানজেকশন আইডি:" : "TrxID:"}</span>
+                  <span className="font-mono font-medium text-gray-700">{order.payment_transaction_id}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 font-medium">{lang === "bn" ? "পরিশোধিত অর্থ:" : "Amount Paid:"}</span>
+                <span className="font-black text-emerald-900">{formatCurrency(order.total)}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => window.print()}
+              className="w-full py-2 px-3 bg-white border border-emerald-300 hover:bg-emerald-100/50 text-emerald-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+            >
+              <Printer className="w-4 h-4" />
+              <span>{lang === "bn" ? "রসিদ প্রিন্ট করুন" : "Print Receipt"}</span>
+            </button>
+          </div>
+        ) : !isCancelled ? (
+          <div className="bg-gradient-to-r from-pink-500/10 via-purple-500/10 to-indigo-500/10 border border-pink-200 rounded-2xl p-5 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-accent animate-pulse" />
+                <h3 className="text-sm font-bold text-gray-900">
+                  {lang === "bn" ? "অনলাইনে সরাসরি পেমেন্ট করুন" : "Pay Bill Online"}
+                </h3>
+              </div>
+              <span className="text-xs font-black text-accent">{formatCurrency(order.total)}</span>
+            </div>
+
+            <p className="text-xs text-gray-600">
+              {lang === "bn"
+                ? "বিকাশ, নগদ বা ডেবিট/ক্রেডিট কার্ড দিয়ে সহজেই আপনার বিল সরাসরি পরিশোধ করুন।"
+                : "Fast & secure digital payment via bKash, Nagad, or Cards (SSLCOMMERZ)."}
+            </p>
+
+            <button
+              onClick={() => setShowPaymentModal(true)}
+              className="w-full py-3 px-4 bg-[#E2136E] hover:bg-[#C2105D] text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
+            >
+              <CreditCard className="w-4 h-4" />
+              <span>
+                {lang === "bn"
+                  ? `বিকাশ / কার্ড দিয়ে পে করুন (${formatCurrency(order.total)})`
+                  : `Pay Online with bKash / Card (${formatCurrency(order.total)})`}
+              </span>
+            </button>
+          </div>
+        ) : null}
+
+        {/* Online Payment Modal */}
+        {showPaymentModal && restaurant && (
+          <OnlinePaymentModal
+            orderId={order.id}
+            orderNumber={order.order_number}
+            payableTotal={order.total}
+            customerPhone={order.customer_phone}
+            restaurantName={restaurant.name}
+            onClose={() => setShowPaymentModal(false)}
+            onPaymentSuccess={() => {
+              fetchStatus();
+            }}
+          />
+        )}
 
         {/* Customer & Timestamp Info */}
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-200 text-xs text-gray-500 space-y-1.5">

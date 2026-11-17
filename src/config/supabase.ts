@@ -355,3 +355,24 @@ export interface ZReportData {
   };
   notes?: string | null;
 }
+
+export interface OnlinePaymentSession {
+  id: string;
+  tran_id: string;
+  session_id: string;
+  order_id: string;
+  restaurant_id: string;
+  gateway: "bkash" | "sslcommerz" | "nagad";
+  amount: number;
+  currency: string;
+  status: "pending" | "completed" | "failed" | "cancelled" | "expired";
+  gateway_trx_id?: string | null;
+  gateway_payment_id?: string | null;
+  val_id?: string | null;
+  customer_phone?: string | null;
+  metadata?: Record<string, unknown> | null;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+}
+

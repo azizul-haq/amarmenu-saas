@@ -4,14 +4,15 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { supabase } from "../config/supabase";
 import {
   submitSubscriptionPayment,
-  evaluateSubscriptionGraceAndLock,
   adminOverrideSubscription,
   getPlatformBillingOverview,
 } from "../../src/services/subscriptionService";
+import { getServiceRoleClient } from "./serviceRoleClient";
 
 describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
   let ownerAClient: SupabaseClient;
   let adminClient: SupabaseClient;
+  const serviceRole = getServiceRoleClient();
 
   let restAId: string;
   const REST_B_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
@@ -207,13 +208,22 @@ describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
       });
     });
 
-    it("runs grace and lock sweep procedure successfully", async () => {
-      const res = await evaluateSubscriptionGraceAndLock();
+    it("runs grace and lock sweep procedure successfully via service_role and rejects client invocation", async () => {
+      // 1. Authenticated client invocation is denied (42501)
+      const { error: clientErr } = await adminClient.rpc("evaluate_subscription_grace_and_lock");
+      expect(clientErr).not.toBeNull();
+      expect(clientErr!.code).toBe("42501");
 
-      expect(res.success).toBe(true);
-      expect(res.data).toBeDefined();
-      expect(res.data).toHaveProperty("grace_period_assigned");
-      expect(res.data).toHaveProperty("suspended_and_locked");
+      // 2. Server-side service_role execution succeeds
+      const { data, error } = await serviceRole.rpc<{
+        grace_period_assigned: number;
+        suspended_and_locked: number;
+      }>("evaluate_subscription_grace_and_lock");
+
+      expect(error).toBeNull();
+      expect(data).toBeDefined();
+      expect(data).toHaveProperty("grace_period_assigned");
+      expect(data).toHaveProperty("suspended_and_locked");
     });
 
     it("allows Super Admin to directly override plan, status, and trial days", async () => {

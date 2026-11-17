@@ -7,11 +7,13 @@ import {
   generateMockTrxId,
 } from "../services/onlinePaymentService";
 import type { PaymentCompletionResult } from "../schemas/onlinePaymentSchema";
+import { getServiceRoleClient } from "./serviceRoleClient";
 
 describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Settlement", () => {
   let anonClient: SupabaseClient;
   let ownerAClient: SupabaseClient;
   let adminClient: SupabaseClient;
+  const serviceRole = getServiceRoleClient();
   let restAId: string;
   let testItemId: string;
   let testTableId: string;
@@ -134,14 +136,14 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
     };
   };
 
-  // Helper to execute settlement via authorized server/admin role
+  // Helper to execute settlement via real service-role client
   const executeSettlementAsServiceRole = async (
     sessionId: string,
     gatewayTrxId: string,
     valId?: string,
     payload?: Record<string, unknown>
   ): Promise<{ success: boolean; data?: PaymentCompletionResult; error?: string }> => {
-    const { data, error } = await adminClient.rpc("test_execute_settlement_as_service_role", {
+    const { data, error } = await serviceRole.rpc<PaymentCompletionResult>("complete_online_payment", {
       p_session_id: sessionId,
       p_gateway_trx_id: gatewayTrxId,
       p_val_id: valId || null,
@@ -153,12 +155,12 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
     return { success: true, data: data as PaymentCompletionResult };
   };
 
-  // Helper to execute cancellation via authorized server/admin role
+  // Helper to execute cancellation via real service-role client
   const executeFailAsServiceRole = async (
     sessionId: string,
     reason?: string
   ): Promise<{ success: boolean; error?: string }> => {
-    const { error } = await adminClient.rpc("test_execute_fail_as_service_role", {
+    const { error } = await serviceRole.rpc("fail_online_payment", {
       p_session_id: sessionId,
       p_reason: reason || null,
     });
@@ -226,7 +228,7 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
       ];
 
       for (const fn of funcs) {
-        const { data } = await anonClient.rpc("check_function_privilege", {
+        const { data } = await serviceRole.rpc("check_function_privilege", {
           p_role: "anon",
           p_func: fn,
         });
@@ -243,7 +245,7 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
       ];
 
       for (const fn of funcs) {
-        const { data } = await anonClient.rpc("check_function_privilege", {
+        const { data } = await serviceRole.rpc("check_function_privilege", {
           p_role: "authenticated",
           p_func: fn,
         });
@@ -260,12 +262,28 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
       ];
 
       for (const fn of funcs) {
-        const { data } = await anonClient.rpc("check_function_privilege", {
+        const { data } = await serviceRole.rpc("check_function_privilege", {
           p_role: "service_role",
           p_func: fn,
         });
         expect(data).toBe(true);
       }
+    });
+
+    it("proves anon and authenticated clients cannot call check_function_privilege (service_role only)", async () => {
+      const { error: anonErr } = await anonClient.rpc("check_function_privilege", {
+        p_role: "anon",
+        p_func: "complete_online_payment(text,text,text,jsonb)",
+      });
+      expect(anonErr).not.toBeNull();
+      expect(anonErr!.code).toBe("42501");
+
+      const { error: authErr } = await ownerAClient.rpc("check_function_privilege", {
+        p_role: "authenticated",
+        p_func: "complete_online_payment(text,text,text,jsonb)",
+      });
+      expect(authErr).not.toBeNull();
+      expect(authErr!.code).toBe("42501");
     });
 
     it("rejects direct complete_online_payment invocation by anon with 42501 permission denied", async () => {
@@ -623,8 +641,14 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
   });
 
   describe("9. SECURITY DEFINER search_path Global Database Audit", () => {
-    it("confirms 100% of SECURITY DEFINER functions in public schema set explicit search_path", async () => {
-      const { data, error } = await anonClient.rpc("audit_security_definer_functions");
+    it("confirms anon is denied execution on audit_security_definer_functions", async () => {
+      const { error } = await anonClient.rpc("audit_security_definer_functions");
+      expect(error).not.toBeNull();
+      expect(error!.code).toBe("42501");
+    });
+
+    it("confirms 100% of SECURITY DEFINER functions set explicit search_path via service_role execution", async () => {
+      const { data, error } = await serviceRole.rpc("audit_security_definer_functions");
       expect(error).toBeNull();
       expect(data).toEqual([]); // Zero functions missing search_path
     });

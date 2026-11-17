@@ -44,28 +44,67 @@ export const subscribeToOrders = (
   return subscription;
 };
 
-// Update order status
+export interface TransitionOrderResult {
+  success: boolean;
+  data?: {
+    order_id: string;
+    from_status: string;
+    to_status: string;
+    updated_at: string;
+  };
+  error?: string;
+}
+
+export interface OrderStatusHistoryItem {
+  id: string;
+  order_id: string;
+  restaurant_id: string;
+  from_status: string;
+  to_status: string;
+  changed_by?: string | null;
+  notes?: string | null;
+  created_at: string;
+}
+
+// Update order status via server-enforced state machine RPC
 export const updateOrderStatus = async (
   orderId: string,
-  status: string,
+  status: Order["status"],
+  notes?: string,
   paymentData?: {
     paymentMethod?: string;
+    paymentStatus?: string;
     transactionId?: string;
   }
-) => {
-  const updateData: Partial<Order> = { status: status as Order["status"] };
+): Promise<TransitionOrderResult> => {
+  const { data, error } = await supabase.rpc("transition_order_status", {
+    p_order_id: orderId,
+    p_new_status: status,
+    p_notes: notes || null,
+    p_payment_method: paymentData?.paymentMethod || null,
+    p_payment_status: paymentData?.paymentStatus || null,
+    p_payment_transaction_id: paymentData?.transactionId || null,
+  });
 
-  if (paymentData) {
-    updateData.payment_method = paymentData.paymentMethod;
-    updateData.payment_transaction_id = paymentData.transactionId;
+  if (error) {
+    return { success: false, error: error.message };
   }
 
-  const { error } = await supabase
-    .from("orders")
-    .update(updateData)
-    .eq("id", orderId);
+  return { success: true, data };
+};
 
-  return !error;
+// Get order transition audit history
+export const getOrderStatusHistory = async (
+  orderId: string
+): Promise<OrderStatusHistoryItem[]> => {
+  const { data, error } = await supabase
+    .from("order_status_history")
+    .select("*")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: true });
+
+  if (error || !data) return [];
+  return data;
 };
 
 // Subscribe to restaurant categories with real-time updates

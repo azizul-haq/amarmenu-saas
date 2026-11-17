@@ -198,6 +198,10 @@ export interface Order {
   payment_transaction_id?: string;
   customer_notes?: string;
   internal_notes?: string;
+  cancellation_reason?: string | null;
+  rejection_reason?: string | null;
+  verified_by?: string | null;
+  last_updated_by?: string | null;
   accepted_at?: string;
   preparing_at?: string;
   ready_at?: string;

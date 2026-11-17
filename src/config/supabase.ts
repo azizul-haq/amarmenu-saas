@@ -159,9 +159,22 @@ export interface MenuItem {
   updated_at?: string;
 }
 
+export interface RestaurantTable {
+  id: string;
+  restaurant_id: string;
+  table_number: string;
+  capacity: number;
+  qr_token: string;
+  is_active: boolean;
+  deleted_at?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
 export interface Order {
   id: string;
   restaurant_id: string;
+  table_id?: string | null;
   order_number: string;
   order_type: "qr" | "counter" | "phone" | "table";
   table_number?: string;

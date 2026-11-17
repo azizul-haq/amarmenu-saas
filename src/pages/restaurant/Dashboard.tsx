@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   ShoppingBag,
   UtensilsCrossed,
+  QrCode,
   FileText,
   Settings,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import { useAuth } from "../../context/AuthContext";
 import RestaurantHome from "./RestaurantHome";
 import Orders from "./Orders";
 import Menu from "./Menu";
+import Tables from "./Tables";
 import Reports from "./Reports";
 import RestaurantSettings from "./RestaurantSettings";
 
@@ -36,6 +38,7 @@ const RestaurantDashboard: React.FC = () => {
     { path: "/restaurant", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/restaurant/orders", icon: ShoppingBag, label: "Orders" },
     { path: "/restaurant/menu", icon: UtensilsCrossed, label: "Menu" },
+    { path: "/restaurant/tables", icon: QrCode, label: "Tables & QR" },
     { path: "/restaurant/reports", icon: FileText, label: "Reports" },
     { path: "/restaurant/settings", icon: Settings, label: "Settings" },
   ];
@@ -99,6 +102,7 @@ const RestaurantDashboard: React.FC = () => {
           <Route index element={<RestaurantHome />} />
           <Route path="orders" element={<Orders />} />
           <Route path="menu" element={<Menu />} />
+          <Route path="tables" element={<Tables />} />
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<RestaurantSettings />} />
         </Routes>

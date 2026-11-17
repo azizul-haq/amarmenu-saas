@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import {
   ShoppingCart,
   Plus,
@@ -8,6 +8,7 @@ import {
   Search,
   CheckCircle,
   Package,
+  Lock,
 } from "lucide-react";
 import {
   Card,
@@ -20,8 +21,9 @@ import {
 import {
   subscribeToMenuItems,
   createOrder,
+  verifyTableQRToken,
 } from "../../services/restaurantService";
-import type { MenuItem } from "../../config/supabase";
+import type { MenuItem, Restaurant } from "../../config/supabase";
 import { formatCurrency, isValidPhone, normalizeBDPhone } from "../../utils/helpers";
 import { supabase } from "../../config/supabase";
 
@@ -34,7 +36,10 @@ interface CartItem extends MenuItem {
 
 const CustomerMenu: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
-  const [restaurant, setRestaurant] = useState<any>(null);
+  const [searchParams] = useSearchParams();
+  const tableToken = searchParams.get("table") || searchParams.get("token");
+
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,6 +49,14 @@ const CustomerMenu: React.FC = () => {
   const [showCheckout, setShowCheckout] = useState(false);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [showItemModal, setShowItemModal] = useState(false);
+
+  // Table QR Detection state
+  const [detectedTable, setDetectedTable] = useState<{
+    id: string;
+    table_number: string;
+    capacity: number;
+  } | null>(null);
+  const [tableError, setTableError] = useState<string | null>(null);
 
   // Load restaurant and menu
   useEffect(() => {
@@ -82,6 +95,27 @@ const CustomerMenu: React.FC = () => {
     setRestaurant(data);
   };
 
+  // Verify Table QR Token if present in query params
+  useEffect(() => {
+    if (!slug || !tableToken) return;
+
+    const verifyToken = async () => {
+      const res = await verifyTableQRToken(slug, tableToken);
+      if (res.valid && res.table) {
+        setDetectedTable(res.table);
+        setTableError(null);
+      } else {
+        setDetectedTable(null);
+        setTableError(
+          res.error ||
+            "Invalid or expired table QR code. Please scan the QR code on your table again."
+        );
+      }
+    };
+
+    verifyToken();
+  }, [slug, tableToken]);
+
   const categories = [
     "all",
     ...new Set(menuItems.map((item) => item.category).filter(Boolean)),
@@ -98,8 +132,8 @@ const CustomerMenu: React.FC = () => {
 
   const addToCart = (
     item: MenuItem,
-    selectedSize?: any,
-    selectedAddons: any[] = []
+    selectedSize?: { name: string; price: number },
+    selectedAddons: { name: string; price: number }[] = []
   ) => {
     const basePrice = selectedSize ? selectedSize.price : item.base_price;
     const addonsTotal = selectedAddons.reduce(
@@ -206,23 +240,38 @@ const CustomerMenu: React.FC = () => {
       {/* Header */}
       <div className="bg-white shadow-sm sticky top-0 z-40">
         <div className="max-w-screen-lg mx-auto px-4 py-3">
-          <div className="flex items-center gap-3 mb-3">
-            {restaurant.logo_url && (
-              <img
-                src={restaurant.logo_url}
-                alt={restaurant.name}
-                className="w-12 h-12 rounded-lg object-cover"
-              />
-            )}
-            <div>
-              <h1 className="font-bold text-lg text-gray-800">
-                {restaurant.name}
-              </h1>
-              <p className="text-xs text-gray-500">
-                {restaurant.restaurant_type}
-              </p>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-3">
+              {restaurant.logo_url && (
+                <img
+                  src={restaurant.logo_url}
+                  alt={restaurant.name}
+                  className="w-12 h-12 rounded-lg object-cover"
+                />
+              )}
+              <div>
+                <h1 className="font-bold text-lg text-gray-800">
+                  {restaurant.name}
+                </h1>
+                <p className="text-xs text-gray-500">
+                  {restaurant.restaurant_type}
+                </p>
+              </div>
             </div>
+
+            {/* Detected Table Badge */}
+            {detectedTable && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/10 border border-accent/30 rounded-xl">
+                <span className="text-xs font-bold text-accent">
+                  📍 {detectedTable.table_number}
+                </span>
+                <span className="text-[10px] bg-accent text-white px-1.5 py-0.5 rounded font-medium">
+                  Dine-in
+                </span>
+              </div>
+            )}
           </div>
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -235,6 +284,13 @@ const CustomerMenu: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Table Error Alert Banner */}
+      {tableError && (
+        <div className="max-w-screen-lg mx-auto px-4 pt-3">
+          <Alert type="error" message={tableError} />
+        </div>
+      )}
 
       {/* Category Tabs */}
       <div className="bg-white border-b sticky top-[108px] z-30">
@@ -386,6 +442,8 @@ const CustomerMenu: React.FC = () => {
         isOpen={showCheckout}
         cart={cart}
         restaurantId={restaurant.id}
+        detectedTable={detectedTable}
+        tableError={tableError}
         onClose={() => setShowCheckout(false)}
         onSuccess={() => {
           setCart([]);
@@ -528,7 +586,11 @@ interface ItemCustomizationModalProps {
   isOpen: boolean;
   item: MenuItem | null;
   onClose: () => void;
-  onAdd: (item: MenuItem, selectedSize?: any, selectedAddons?: any[]) => void;
+  onAdd: (
+    item: MenuItem,
+    selectedSize?: { name: string; price: number },
+    selectedAddons?: { name: string; price: number }[]
+  ) => void;
 }
 
 const ItemCustomizationModal: React.FC<ItemCustomizationModalProps> = ({
@@ -537,8 +599,13 @@ const ItemCustomizationModal: React.FC<ItemCustomizationModalProps> = ({
   onClose,
   onAdd,
 }) => {
-  const [selectedSize, setSelectedSize] = useState<any>(null);
-  const [selectedAddons, setSelectedAddons] = useState<any[]>([]);
+  const [selectedSize, setSelectedSize] = useState<{
+    name: string;
+    price: number;
+  } | null>(null);
+  const [selectedAddons, setSelectedAddons] = useState<
+    { name: string; price: number }[]
+  >([]);
 
   useEffect(() => {
     if (item?.sizes && item.sizes.length > 0) {
@@ -548,7 +615,7 @@ const ItemCustomizationModal: React.FC<ItemCustomizationModalProps> = ({
 
   if (!item) return null;
 
-  const toggleAddon = (addon: any) => {
+  const toggleAddon = (addon: { name: string; price: number }) => {
     if (selectedAddons.find((a) => a.name === addon.name)) {
       setSelectedAddons(selectedAddons.filter((a) => a.name !== addon.name));
     } else {
@@ -636,7 +703,7 @@ const ItemCustomizationModal: React.FC<ItemCustomizationModalProps> = ({
             <span>{formatCurrency(calculateTotal())}</span>
           </div>
           <Button
-            onClick={() => onAdd(item, selectedSize, selectedAddons)}
+            onClick={() => onAdd(item, selectedSize || undefined, selectedAddons)}
             fullWidth
             size="lg"
           >
@@ -653,6 +720,8 @@ interface CheckoutModalProps {
   isOpen: boolean;
   cart: CartItem[];
   restaurantId: string;
+  detectedTable?: { id: string; table_number: string; capacity: number } | null;
+  tableError?: string | null;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -661,6 +730,8 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
   isOpen,
   cart,
   restaurantId,
+  detectedTable,
+  tableError,
   onClose,
   onSuccess,
 }) => {
@@ -673,6 +744,14 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
+  // Synchronize detected table from QR
+  useEffect(() => {
+    if (detectedTable) {
+      setOrderType("table");
+      setTableNumber(detectedTable.table_number);
+    }
+  }, [detectedTable]);
+
   const subtotal = cart.reduce(
     (sum, item) => sum + item.itemTotal * item.quantity,
     0
@@ -683,6 +762,11 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (tableError && orderType === "table") {
+      setError(tableError);
+      return;
+    }
 
     if (!customerName.trim()) {
       setError("Please enter your name");
@@ -703,10 +787,12 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
     const orderData = {
       restaurant_id: restaurantId,
-      order_type: (orderType === "table" ? "qr" : "counter") as
+      table_id: detectedTable ? detectedTable.id : undefined,
+      order_type: (detectedTable ? "qr" : orderType === "table" ? "table" : "counter") as
         | "qr"
-        | "counter",
-      table_number: orderType === "table" ? tableNumber : undefined,
+        | "counter"
+        | "table",
+      table_number: orderType === "table" ? (detectedTable ? detectedTable.table_number : tableNumber) : undefined,
       customer_name: customerName,
       customer_phone: normalizeBDPhone(customerPhone),
       items: cart.map((item) => ({
@@ -742,9 +828,11 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const resetForm = () => {
     setCustomerName("");
     setCustomerPhone("");
-    setTableNumber("");
+    if (!detectedTable) {
+      setTableNumber("");
+      setOrderType("table");
+    }
     setNotes("");
-    setOrderType("table");
     setSuccess(false);
   };
 
@@ -773,37 +861,58 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
       <form onSubmit={handleSubmit} className="space-y-6">
         {error && <Alert type="error" message={error} />}
 
-        {/* Order Type */}
-        <div>
-          <label className="label mb-3">Order Type</label>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setOrderType("table")}
-              className={`p-4 rounded-lg border-2 font-semibold transition-colors ${
-                orderType === "table"
-                  ? "border-accent bg-accent/10 text-accent"
-                  : "border-border hover:border-accent/50"
-              }`}
-            >
-              Dine In (Table)
-            </button>
-            <button
-              type="button"
-              onClick={() => setOrderType("takeaway")}
-              className={`p-4 rounded-lg border-2 font-semibold transition-colors ${
-                orderType === "takeaway"
-                  ? "border-accent bg-accent/10 text-accent"
-                  : "border-border hover:border-accent/50"
-              }`}
-            >
-              Takeaway / Parcel
-            </button>
+        {/* Order Type & Table Lock */}
+        {detectedTable ? (
+          <div className="bg-accent/10 border border-accent/20 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-accent text-white rounded-lg flex items-center justify-center">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs text-text-secondary uppercase tracking-wider font-semibold">
+                  Dine-In Table (Locked by QR)
+                </p>
+                <p className="text-lg font-bold text-text">
+                  {detectedTable.table_number}
+                </p>
+              </div>
+            </div>
+            <span className="text-xs bg-success text-white px-2.5 py-1 rounded-full font-semibold">
+              QR Verified
+            </span>
           </div>
-        </div>
+        ) : (
+          <div>
+            <label className="label mb-3">Order Type</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setOrderType("table")}
+                className={`p-4 rounded-lg border-2 font-semibold transition-colors ${
+                  orderType === "table"
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-border hover:border-accent/50"
+                }`}
+              >
+                Dine In (Table)
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrderType("takeaway")}
+                className={`p-4 rounded-lg border-2 font-semibold transition-colors ${
+                  orderType === "takeaway"
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-border hover:border-accent/50"
+                }`}
+              >
+                Takeaway / Parcel
+              </button>
+            </div>
+          </div>
+        )}
 
-        {/* Table Number (only for table orders) */}
-        {orderType === "table" && (
+        {/* Table Number manual entry if not QR detected */}
+        {!detectedTable && orderType === "table" && (
           <Input
             label="Table Number"
             value={tableNumber}

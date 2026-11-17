@@ -1,5 +1,5 @@
 import { supabase } from "../config/supabase";
-import type { Order, MenuItem, MenuCategory } from "../config/supabase";
+import type { Order, MenuItem, MenuCategory, RestaurantTable } from "../config/supabase";
 
 /**
  * Restaurant API Service
@@ -292,3 +292,126 @@ export const getRestaurantStats = async (restaurantId: string) => {
     };
   }
 };
+
+// ============================================================================
+// Restaurant Table Management & QR Code Functions
+// ============================================================================
+
+// Subscribe to restaurant tables with real-time updates
+export const subscribeToTables = (
+  restaurantId: string,
+  callback: (tables: RestaurantTable[]) => void
+) => {
+  const fetchTables = async () => {
+    const { data, error } = await supabase
+      .from("restaurant_tables")
+      .select("*")
+      .eq("restaurant_id", restaurantId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true });
+
+    if (!error && data) {
+      callback(data as RestaurantTable[]);
+    }
+  };
+
+  fetchTables();
+
+  const channel = supabase
+    .channel(`restaurant_tables_${restaurantId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "restaurant_tables",
+        filter: `restaurant_id=eq.${restaurantId}`,
+      },
+      () => {
+        fetchTables();
+      }
+    )
+    .subscribe();
+
+  return {
+    unsubscribe: () => {
+      supabase.removeChannel(channel);
+    },
+  };
+};
+
+// Create a new table
+export const createRestaurantTable = async (table: {
+  restaurant_id: string;
+  table_number: string;
+  capacity?: number;
+  is_active?: boolean;
+}) => {
+  const { data, error } = await supabase
+    .from("restaurant_tables")
+    .insert([table])
+    .select()
+    .single();
+
+  return { success: !error, data, error: error?.message };
+};
+
+// Update table details (e.g. number, capacity, active status)
+export const updateRestaurantTable = async (
+  tableId: string,
+  updates: Partial<RestaurantTable>
+) => {
+  const { data, error } = await supabase
+    .from("restaurant_tables")
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq("id", tableId)
+    .select()
+    .single();
+
+  return { success: !error, data, error: error?.message };
+};
+
+// Soft delete a table
+export const deleteRestaurantTable = async (tableId: string) => {
+  const { error } = await supabase
+    .from("restaurant_tables")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", tableId);
+
+  return !error;
+};
+
+// Regenerate table QR token
+export const regenerateTableQR = async (tableId: string) => {
+  const { data, error } = await supabase.rpc("regenerate_table_qr_token", {
+    p_table_id: tableId,
+  });
+
+  return { success: !error, token: data as string, error: error?.message };
+};
+
+// Verify table QR token for customer ordering
+export const verifyTableQRToken = async (
+  slug: string,
+  token: string
+): Promise<{
+  valid: boolean;
+  table?: { id: string; table_number: string; capacity: number };
+  error?: string;
+}> => {
+  const { data, error } = await supabase.rpc("verify_table_qr_token", {
+    p_slug: slug,
+    p_token: token,
+  });
+
+  if (error || !data) {
+    return { valid: false, error: error?.message || "Verification failed" };
+  }
+
+  return data as {
+    valid: boolean;
+    table?: { id: string; table_number: string; capacity: number };
+    error?: string;
+  };
+};
+

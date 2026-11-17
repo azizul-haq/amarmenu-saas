@@ -18,8 +18,9 @@
 | **5** | **Tenant RLS + Isolation Tests** | **Done** | Implemented strict multi-tenant RLS policies on all tables (`orders`, `menu_items`, `menu_categories`, `subscriptions`, `restaurant_staff`, `restaurants`). Created `current_restaurant_id()` and `is_super_admin()` helper functions. Revoked anon execute on admin procedures and dropped legacy RPC logins. Added 10 automated RLS integration tests in `src/tests/rls.test.ts` verifying Restaurant A cannot view/edit Restaurant B's data, anon cannot access orders, and super admin has full visibility (30/30 total tests pass). |
 | **6** | **Super Admin Approval & Onboarding** | **Done** | Implemented server-side registration approval via Edge Function (`approve-registration`) and secure RPC procedure (`approve_registration_request`). Eliminated client-side temporary passwords and plaintext credential modals. Generated secure `/set-password` invite links with 1-click WhatsApp/SMS/Email copy. Built `SetPasswordPage.tsx`. Eliminated 4 more `any` types (down to 12). All 32 automated tests pass. |
 | **7** | **Bilingual Menu & Soft Delete** | **Done** | Bilingual support (English + বাংলা) for categories and menu items (`name_bn`, `description_bn`). Dynamic size variants (with custom pricing) and add-on options (e.g. Borhani, Extra Cheese). Runtime validation with Zod schemas (`menuItemSchema`, `menuCategorySchema`, `sizeVariantSchema`, `addonVariantSchema`). Non-destructive soft delete (`deleted_at`) preserving historical order integrity. Full tenant RLS isolation and 8 automated tests in `src/tests/menu.test.ts` (40/40 total tests pass). Eliminated 1 more `any` type (down to 11). |
+| **8** | **Tables Management & QR Ordering** | **Done** | Table management schema (`restaurant_tables`, `qr_token`), unique unguessable 32-char tokens, token rotation via `regenerate_table_qr_token`, tenant-scoped RLS. Branded table tent card modal and downloadable PDF generation via `jsPDF` + `html2canvas` (single table + bulk all tables). Secure customer QR verification (`verify_table_qr_token`): verified table locks checkout table number, invalid or manipulated QR token displays prominent alert. Added 9 automated tests in `src/tests/tables.test.ts` (49/49 total tests pass). Eliminated 4 more `any` types in `CustomerMenu.tsx` (down to 7). |
 
-### Current Chunk: Ready for Chunk 8
+### Current Chunk: Ready for Chunk 9
 
 ---
 
@@ -33,12 +34,13 @@
 * **ADR-007 (Tenant Row Level Security)**: All database queries must run under Postgres RLS. Public anon clients can only view active menus and submit customer orders. Authenticated restaurant staff are strictly constrained to `restaurant_id = current_restaurant_id()`. Super admins are granted platform-wide oversight via `is_super_admin()`.
 * **ADR-008 (Password-Free Owner Onboarding)**: Restaurant owners never receive plaintext or temporary passwords. On approval, the platform issues an invite / set-password link (`/set-password`) via Edge Function / GoTrue Admin API. The owner sets their permanent password upon first access.
 * **ADR-009 (Bilingual Menu & Soft Delete Integrity)**: Menu categories and items store both English and Bengali text (`name_bn`, `description_bn`). To protect customer order historical integrity, item deletion uses soft-deletion (`deleted_at = NOW()`). Postgres RLS policies allow staff full management while preventing soft-deleted items from leaking to storefront customer queries. Variants (sizes and add-ons) are modeled as validated JSONB structures with individual pricing.
+* **ADR-010 (Cryptographic Table QR Token & Ordering Verification)**: Each dine-in table is assigned a unique, unguessable 32-character hexadecimal cryptographic token (`qr_token`). Scanning `/menu/:slug?table=<token>` validates both restaurant slug and table token atomically via `verify_table_qr_token`. On valid token detection, the table number is automatically locked for checkout to prevent table spoofing. Manipulated, expired, or soft-deleted table tokens are rejected with a clear customer error.
 
 ---
 
 ## Inventory of `any` Types (To Be Eliminated)
 
-Remaining occurrences: **11** (originally 26, eliminated 15)
+Remaining occurrences: **7** (originally 26, eliminated 19)
 
 | # | File Path | Line | Context Snippet | Planned Elimination Chunk | Status |
 | :-: | :--- | :-: | :--- | :--- | :--- | :---: |
@@ -48,12 +50,12 @@ Remaining occurrences: **11** (originally 26, eliminated 15)
 | 4 | `src/pages/admin/PendingRequests.tsx` | 257 | `onSuccess: (credentials: any) => void;` | Chunk 6: Admin Onboarding | **Eliminated** |
 | 5 | `src/pages/admin/PendingRequests.tsx` | 529 | `credentials: any;` | Chunk 6: Admin Onboarding | **Eliminated** |
 | 6 | `src/pages/customer/CustomerMenu.tsx` | 37 | `const [restaurant, setRestaurant] = useState<any>(null);` | Customer Menu Types | **Eliminated** |
-| 7 | `src/pages/customer/CustomerMenu.tsx` | 101 | `selectedSize?: any,` | Customer Menu Types | Pending |
-| 8 | `src/pages/customer/CustomerMenu.tsx` | 102 | `selectedAddons: any[] = []` | Customer Menu Types | Pending |
-| 9 | `src/pages/customer/CustomerMenu.tsx` | 531 | `onAdd: (item: MenuItem, selectedSize?: any, selectedAddons?: any[]) => void;` | Customer Menu Types | Pending |
+| 7 | `src/pages/customer/CustomerMenu.tsx` | 101 | `selectedSize?: any,` | Customer Menu Types | **Eliminated** |
+| 8 | `src/pages/customer/CustomerMenu.tsx` | 102 | `selectedAddons: any[] = []` | Customer Menu Types | **Eliminated** |
+| 9 | `src/pages/customer/CustomerMenu.tsx` | 531 | `onAdd: (item: MenuItem, selectedSize?: any, selectedAddons?: any[]) => void;` | Customer Menu Types | **Eliminated** |
 | 10 | `src/pages/customer/CustomerMenu.tsx` | 540 | `const [selectedSize, setSelectedSize] = useState<any>(null);` | Customer Menu Types | **Eliminated** |
 | 11 | `src/pages/customer/CustomerMenu.tsx` | 541 | `const [selectedAddons, setSelectedAddons] = useState<any[]>([]);` | Customer Menu Types | **Eliminated** |
-| 12 | `src/pages/customer/CustomerMenu.tsx` | 551 | `const toggleAddon = (addon: any) => {` | Customer Menu Types | Pending |
+| 12 | `src/pages/customer/CustomerMenu.tsx` | 551 | `const toggleAddon = (addon: any) => {` | Customer Menu Types | **Eliminated** |
 | 13 | `src/pages/public/LoginPage.tsx` | 116 | `} catch (err: any) {` | Chunk 4: Auth Refactor | **Eliminated** |
 | 14 | `src/pages/public/RegisterPage.tsx` | 120 | `} catch (err: any) {` | Registration Refactor | Pending |
 | 15 | `src/pages/restaurant/Dashboard.tsx` | 27 | `const [user, setUser] = useState<any>(null);` | Chunk 4: Auth Refactor | **Eliminated** |
@@ -79,3 +81,4 @@ The following issues were identified during code inspection:
 4. ~~**Indian Currency & Phone Format Defaults**~~: **Resolved in Chunk 2**. BDT `৳` and BD phone regex implemented.
 5. ~~**Blanket RLS Policies**~~: **Resolved in Chunk 5**. Strict tenant-scoped RLS policies deployed across all database tables with automated multi-tenant verification tests.
 6. ~~**Missing Menu Validation & Non-Bilingual Menus**~~: **Resolved in Chunk 7**. Strict Zod schemas enforce required fields, positive prices, and variant structures. Full English + Bengali support and non-destructive soft-delete deployed.
+7. ~~**Insecure Table Manual Typing & Missing QR Tokens**~~: **Resolved in Chunk 8**. Dine-in tables assigned cryptographic tokens, verified atomically upon customer scan, and locked during checkout.

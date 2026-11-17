@@ -414,33 +414,74 @@ ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
 -- Public policies (Custom auth via application)
+DROP POLICY IF EXISTS "Allow public insert on registration_requests" ON registration_requests;
 CREATE POLICY "Allow public insert on registration_requests" ON registration_requests FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public select on registration_requests" ON registration_requests;
 CREATE POLICY "Allow public select on registration_requests" ON registration_requests FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public update on registration_requests" ON registration_requests;
 CREATE POLICY "Allow public update on registration_requests" ON registration_requests FOR UPDATE USING (true);
 
+DROP POLICY IF EXISTS "Allow public select on restaurants" ON restaurants;
 CREATE POLICY "Allow public select on restaurants" ON restaurants FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public update on restaurants" ON restaurants;
 CREATE POLICY "Allow public update on restaurants" ON restaurants FOR UPDATE USING (true);
+
+DROP POLICY IF EXISTS "Allow public insert on restaurants" ON restaurants;
 CREATE POLICY "Allow public insert on restaurants" ON restaurants FOR INSERT WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Allow public all on menu_categories" ON menu_categories;
 CREATE POLICY "Allow public all on menu_categories" ON menu_categories FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on menu_items" ON menu_items;
 CREATE POLICY "Allow public all on menu_items" ON menu_items FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on orders" ON orders;
 CREATE POLICY "Allow public all on orders" ON orders FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow read on users" ON users;
 CREATE POLICY "Allow read on users" ON users FOR SELECT USING (true);
 
 -- =====================================================
 -- ENABLE REAL-TIME REPLICATION
 -- =====================================================
 ALTER TABLE registration_requests REPLICA IDENTITY FULL;
-ALTER PUBLICATION supabase_realtime ADD TABLE registration_requests;
-
 ALTER TABLE restaurants REPLICA IDENTITY FULL;
-ALTER PUBLICATION supabase_realtime ADD TABLE restaurants;
-
 ALTER TABLE menu_items REPLICA IDENTITY FULL;
-ALTER PUBLICATION supabase_realtime ADD TABLE menu_items;
-
 ALTER TABLE orders REPLICA IDENTITY FULL;
-ALTER PUBLICATION supabase_realtime ADD TABLE orders;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'registration_requests'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE registration_requests;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'restaurants'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE restaurants;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'menu_items'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE menu_items;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'orders'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE orders;
+  END IF;
+END $$;
 
 -- =====================================================
 -- INSERT DEFAULT ADMIN USER

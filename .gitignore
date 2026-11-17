@@ -32,3 +32,4 @@ dist-ssr
 *debug*
 *.tmp
 *.bak
+supabase/.temp/

@@ -13,8 +13,9 @@
 | :---: | :--- | :---: | :--- |
 | **1** | **Baseline Cleanup & Setup** | **Done** | Initialized git, fixed `.gitignore`, set up `supabase/migrations/20261117000000_baseline.sql`, updated `.env.example`, documented all `any` usages and known debt. |
 | **2** | **BD Localization (Core)** | **Done** | ₹ → ৳, BD mobile regex + E.164 normalization (+8801XXXXXXXXX), Asia/Dhaka timezone formatting, configurable VAT rate, bKash/Nagad payment labels, 20 unit tests via Vitest. |
+| **3** | **Core Schema v1** | **Done** | Versioned migration (20261117000001_core_schema_v1.sql) applied to remote DB with zero data loss. Added restaurants BD columns (VAT BIN, trade license, currency ৳), restaurant_staff, platform_admins, plans (Starter/Growth/Enterprise), subscriptions backfilled, updated TypeScript interfaces. |
 
-### Current Chunk: Ready for Chunk 3
+### Current Chunk: Ready for Chunk 4
 
 ---
 

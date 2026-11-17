@@ -13,12 +13,14 @@ import {
   FileText,
   Store as StoreIcon,
   BarChart3,
+  CreditCard,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import DashboardHome from "./DashboardHome";
 import PendingRequests from "./PendingRequests";
 import AllRestaurants from "./AllRestaurants";
 import Analytics from "./Analytics";
+import Billing from "./Billing";
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -34,6 +36,7 @@ const AdminDashboard: React.FC = () => {
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/admin/requests", icon: FileText, label: "Pending Requests" },
     { path: "/admin/restaurants", icon: StoreIcon, label: "All Restaurants" },
+    { path: "/admin/billing", icon: CreditCard, label: "Subscriptions & Billing" },
     { path: "/admin/analytics", icon: BarChart3, label: "Analytics" },
   ];
 
@@ -94,6 +97,7 @@ const AdminDashboard: React.FC = () => {
           <Route index element={<DashboardHome />} />
           <Route path="requests" element={<PendingRequests />} />
           <Route path="restaurants" element={<AllRestaurants />} />
+          <Route path="billing" element={<Billing />} />
           <Route path="analytics" element={<Analytics />} />
         </Routes>
       </div>

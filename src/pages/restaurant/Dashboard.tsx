@@ -16,6 +16,7 @@ import {
   FileText,
   Settings,
   ChefHat,
+  ShieldAlert,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import RestaurantHome from "./RestaurantHome";
@@ -25,6 +26,7 @@ import Menu from "./Menu";
 import Tables from "./Tables";
 import Reports from "./Reports";
 import RestaurantSettings from "./RestaurantSettings";
+import AuditLogsPage from "./AuditLogs";
 
 const RestaurantDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -43,6 +45,7 @@ const RestaurantDashboard: React.FC = () => {
     { path: "/restaurant/menu", icon: UtensilsCrossed, label: "Menu" },
     { path: "/restaurant/tables", icon: QrCode, label: "Tables & QR" },
     { path: "/restaurant/reports", icon: FileText, label: "Reports" },
+    { path: "/restaurant/audit", icon: ShieldAlert, label: "Audit Logs" },
     { path: "/restaurant/settings", icon: Settings, label: "Settings" },
   ];
 
@@ -108,6 +111,7 @@ const RestaurantDashboard: React.FC = () => {
           <Route path="menu" element={<Menu />} />
           <Route path="tables" element={<Tables />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="audit" element={<AuditLogsPage />} />
           <Route path="settings" element={<RestaurantSettings />} />
         </Routes>
       </div>

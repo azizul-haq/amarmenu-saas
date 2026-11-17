@@ -14,6 +14,7 @@ import {
   Printer,
   Receipt,
   DollarSign,
+  ShieldAlert,
 } from "lucide-react";
 import {
   Card,
@@ -33,6 +34,8 @@ import type { BillSettlementResult } from "../../services/restaurantService";
 import { KOTReceipt } from "../../components/restaurant/KOTReceipt";
 import { BillReceiptModal } from "../../components/restaurant/BillReceiptModal";
 import { SettleBillModal } from "../../components/restaurant/SettleBillModal";
+import { VoidOrderModal } from "../../components/restaurant/VoidOrderModal";
+import type { VoidOrderResult } from "../../services/auditService";
 import type { Order, OrderItem, Restaurant } from "../../config/supabase";
 import { supabase } from "../../config/supabase";
 import { formatDateTime, formatCurrency, playSound } from "../../utils/helpers";
@@ -47,6 +50,7 @@ const Orders: React.FC = () => {
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
   const [settleOrder, setSettleOrder] = useState<Order | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
+  const [voidOrder, setVoidOrder] = useState<Order | null>(null);
   const [restaurantName, setRestaurantName] = useState("Restaurant");
   const [restaurantData, setRestaurantData] = useState<Restaurant | null>(null);
   const previousOrdersRef = useRef<Order[]>([]);
@@ -478,18 +482,30 @@ const Orders: React.FC = () => {
                     </>
                   )}
 
-                  {/* Completed: Print Customer Bill Receipt */}
+                  {/* Completed: Print Customer Bill Receipt or Void Bill */}
                   {order.status === "completed" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      fullWidth
-                      className="font-bold text-emerald-700 border-emerald-300 hover:bg-emerald-50 flex items-center justify-center gap-1.5"
-                      onClick={() => setReceiptOrder(order)}
-                    >
-                      <Receipt className="w-4 h-4" />
-                      <span>Print Bill Receipt</span>
-                    </Button>
+                    <div className="space-y-1.5 w-full">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        fullWidth
+                        className="font-bold text-emerald-700 border-emerald-300 hover:bg-emerald-50 flex items-center justify-center gap-1.5"
+                        onClick={() => setReceiptOrder(order)}
+                      >
+                        <Receipt className="w-4 h-4" />
+                        <span>Print Bill Receipt</span>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        fullWidth
+                        className="text-[11px] text-red-600 hover:bg-red-50 flex items-center justify-center gap-1"
+                        onClick={() => setVoidOrder(order)}
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        <span>Void Bill (Manager PIN)</span>
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -505,6 +521,9 @@ const Orders: React.FC = () => {
         onClose={() => {
           setShowDetailsModal(false);
           setSelectedOrder(null);
+        }}
+        onVoid={(order) => {
+          setVoidOrder(order);
         }}
       />
 
@@ -563,6 +582,27 @@ const Orders: React.FC = () => {
           onClose={() => setReceiptOrder(null)}
         />
       )}
+
+      {/* Void Order Modal */}
+      {voidOrder && (
+        <VoidOrderModal
+          order={voidOrder}
+          onClose={() => setVoidOrder(null)}
+          onVoided={(result: VoidOrderResult) => {
+            const updated: Order = {
+              ...voidOrder,
+              status: "cancelled",
+              cancellation_reason: `Manager Void: Order #${result.order_number}`,
+              cancelled_at: result.voided_at,
+            };
+            setVoidOrder(null);
+            setShowDetailsModal(false);
+            setOrders((prev) =>
+              prev.map((o) => (o.id === updated.id ? updated : o))
+            );
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -572,12 +612,14 @@ interface OrderDetailsModalProps {
   isOpen: boolean;
   order: Order | null;
   onClose: () => void;
+  onVoid?: (order: Order) => void;
 }
 
 const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   isOpen,
   order,
   onClose,
+  onVoid,
 }) => {
   if (!order) return null;
 
@@ -797,9 +839,21 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
           </div>
         )}
 
-        <Button onClick={onClose} fullWidth>
-          Close
-        </Button>
+        <div className="flex gap-2">
+          {onVoid && order.status !== "cancelled" && order.status !== "rejected" && (
+            <Button
+              variant="outline"
+              onClick={() => onVoid(order)}
+              className="text-red-600 border-red-200 hover:bg-red-50 flex items-center justify-center gap-1.5"
+            >
+              <ShieldAlert className="w-4 h-4" />
+              <span>Void Order</span>
+            </Button>
+          )}
+          <Button onClick={onClose} fullWidth>
+            Close
+          </Button>
+        </div>
       </div>
     </Modal>
   );

@@ -67,6 +67,7 @@ export interface RestaurantStaff {
   phone?: string | null;
   email?: string | null;
   role: "owner" | "manager" | "cashier" | "kitchen" | "waiter";
+  manager_pin_hash?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -265,5 +266,21 @@ export interface AdminUser {
   email: string;
   password_hash: string;
   name?: string;
+  created_at: string;
+}
+
+export interface AuditLog {
+  id: string;
+  restaurant_id: string;
+  actor_id?: string | null;
+  actor_name?: string | null;
+  actor_role?: string | null;
+  action: "void_order" | "void_item" | "apply_discount" | "waive_bill" | string;
+  entity_type: "order" | "payment" | "order_item" | string;
+  entity_id: string;
+  old_values?: Record<string, unknown> | null;
+  new_values?: Record<string, unknown> | null;
+  reason: string;
+  manager_id?: string | null;
   created_at: string;
 }

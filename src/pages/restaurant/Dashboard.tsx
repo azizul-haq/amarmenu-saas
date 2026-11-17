@@ -15,10 +15,12 @@ import {
   QrCode,
   FileText,
   Settings,
+  ChefHat,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import RestaurantHome from "./RestaurantHome";
 import Orders from "./Orders";
+import KitchenKDS from "./KitchenKDS";
 import Menu from "./Menu";
 import Tables from "./Tables";
 import Reports from "./Reports";
@@ -37,6 +39,7 @@ const RestaurantDashboard: React.FC = () => {
   const navItems = [
     { path: "/restaurant", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/restaurant/orders", icon: ShoppingBag, label: "Orders" },
+    { path: "/restaurant/kitchen", icon: ChefHat, label: "Kitchen KDS" },
     { path: "/restaurant/menu", icon: UtensilsCrossed, label: "Menu" },
     { path: "/restaurant/tables", icon: QrCode, label: "Tables & QR" },
     { path: "/restaurant/reports", icon: FileText, label: "Reports" },
@@ -101,6 +104,7 @@ const RestaurantDashboard: React.FC = () => {
         <Routes>
           <Route index element={<RestaurantHome />} />
           <Route path="orders" element={<Orders />} />
+          <Route path="kitchen" element={<KitchenKDS />} />
           <Route path="menu" element={<Menu />} />
           <Route path="tables" element={<Tables />} />
           <Route path="reports" element={<Reports />} />

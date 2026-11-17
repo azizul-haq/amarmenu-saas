@@ -11,6 +11,7 @@ import {
   Bell,
   Check,
   Calendar,
+  Printer,
 } from "lucide-react";
 import {
   Card,
@@ -24,7 +25,9 @@ import {
 import {
   subscribeToOrders,
   updateOrderStatus,
+  recordKOTPrint,
 } from "../../services/restaurantService";
+import { KOTReceipt } from "../../components/restaurant/KOTReceipt";
 import type { Order, OrderItem } from "../../config/supabase";
 import { formatDateTime, formatCurrency, playSound } from "../../utils/helpers";
 
@@ -35,6 +38,8 @@ const Orders: React.FC = () => {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [printOrder, setPrintOrder] = useState<Order | null>(null);
+  const [restaurantName, setRestaurantName] = useState("Restaurant");
   const previousOrdersRef = useRef<Order[]>([]);
 
   useEffect(() => {
@@ -45,7 +50,8 @@ const Orders: React.FC = () => {
       return;
     }
 
-    const { id: restaurantId } = JSON.parse(currentRestaurant);
+    const { id: restaurantId, name } = JSON.parse(currentRestaurant);
+    if (name) setRestaurantName(name);
 
     // Subscribe to real-time orders
     const subscription = subscribeToOrders(restaurantId, (newOrders) => {
@@ -103,6 +109,11 @@ const Orders: React.FC = () => {
   const handleViewDetails = (order: Order) => {
     setSelectedOrder(order);
     setShowDetailsModal(true);
+  };
+
+  const handlePrintKOT = async (order: Order) => {
+    setPrintOrder(order);
+    await recordKOTPrint(order.id);
   };
 
   const getStatusBadge = (status: string) => {
@@ -317,14 +328,23 @@ const Orders: React.FC = () => {
 
                 {/* State Machine Action Controls */}
                 <div className="flex lg:flex-col gap-2 lg:min-w-[170px]">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    fullWidth
-                    onClick={() => handleViewDetails(order)}
-                  >
-                    View Details
-                  </Button>
+                  <div className="flex items-center gap-1.5 w-full">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      fullWidth
+                      onClick={() => handleViewDetails(order)}
+                    >
+                      View Details
+                    </Button>
+                    <button
+                      onClick={() => handlePrintKOT(order)}
+                      className="p-2 border border-border hover:border-accent hover:text-accent rounded-lg text-text-secondary transition-colors"
+                      title="Print KOT Ticket"
+                    >
+                      <Printer className="w-4 h-4" />
+                    </button>
+                  </div>
 
                   {/* Pending: Waiter Verify & Confirm */}
                   {order.status === "pending" && (
@@ -457,6 +477,18 @@ const Orders: React.FC = () => {
         }}
         onReject={handleStatusUpdate}
       />
+
+      {/* KOT Receipt Thermal Print Preview */}
+      {printOrder && (
+        <KOTReceipt
+          order={printOrder}
+          restaurantName={restaurantName}
+          onClose={() => setPrintOrder(null)}
+          onPrint={async () => {
+            await recordKOTPrint(printOrder.id);
+          }}
+        />
+      )}
     </div>
   );
 };

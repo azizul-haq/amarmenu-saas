@@ -44,6 +44,45 @@ export const subscribeToOrders = (
   return subscription;
 };
 
+// Subscribe to active kitchen orders (accepted, preparing, ready)
+export const subscribeToKitchenOrders = (
+  restaurantId: string,
+  callback: (orders: Order[]) => void
+) => {
+  const fetchKitchenOrders = async () => {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("restaurant_id", restaurantId)
+      .in("status", ["accepted", "preparing", "ready"])
+      .order("created_at", { ascending: true });
+
+    if (!error && data) {
+      callback(data);
+    }
+  };
+
+  fetchKitchenOrders();
+
+  const subscription = supabase
+    .channel(`restaurant-kitchen-${restaurantId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "orders",
+        filter: `restaurant_id=eq.${restaurantId}`,
+      },
+      () => {
+        fetchKitchenOrders();
+      }
+    )
+    .subscribe();
+
+  return subscription;
+};
+
 export interface TransitionOrderResult {
   success: boolean;
   data?: {
@@ -105,6 +144,21 @@ export const getOrderStatusHistory = async (
 
   if (error || !data) return [];
   return data;
+};
+
+// Record KOT printing event atomically
+export const recordKOTPrint = async (
+  orderId: string
+): Promise<{ success: boolean; kot_print_count?: number; error?: string }> => {
+  const { data, error } = await supabase.rpc("record_kot_print", {
+    p_order_id: orderId,
+  });
+
+  if (error || !data) {
+    return { success: false, error: error?.message || "Failed to record KOT print" };
+  }
+
+  return { success: true, kot_print_count: data.kot_print_count };
 };
 
 // Subscribe to restaurant categories with real-time updates

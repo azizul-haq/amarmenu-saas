@@ -202,6 +202,8 @@ export interface Order {
   rejection_reason?: string | null;
   verified_by?: string | null;
   last_updated_by?: string | null;
+  kot_printed_at?: string | null;
+  kot_print_count?: number;
   accepted_at?: string;
   preparing_at?: string;
   ready_at?: string;

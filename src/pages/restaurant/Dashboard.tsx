@@ -17,6 +17,7 @@ import {
   Settings,
   ChefHat,
   ShieldAlert,
+  Calculator,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import RestaurantHome from "./RestaurantHome";
@@ -27,6 +28,7 @@ import Tables from "./Tables";
 import Reports from "./Reports";
 import RestaurantSettings from "./RestaurantSettings";
 import AuditLogsPage from "./AuditLogs";
+import ShiftsPage from "./Shifts";
 
 const RestaurantDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -41,6 +43,7 @@ const RestaurantDashboard: React.FC = () => {
   const navItems = [
     { path: "/restaurant", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/restaurant/orders", icon: ShoppingBag, label: "Orders" },
+    { path: "/restaurant/shifts", icon: Calculator, label: "Shifts & Z-Report" },
     { path: "/restaurant/kitchen", icon: ChefHat, label: "Kitchen KDS" },
     { path: "/restaurant/menu", icon: UtensilsCrossed, label: "Menu" },
     { path: "/restaurant/tables", icon: QrCode, label: "Tables & QR" },
@@ -107,6 +110,7 @@ const RestaurantDashboard: React.FC = () => {
         <Routes>
           <Route index element={<RestaurantHome />} />
           <Route path="orders" element={<Orders />} />
+          <Route path="shifts" element={<ShiftsPage />} />
           <Route path="kitchen" element={<KitchenKDS />} />
           <Route path="menu" element={<Menu />} />
           <Route path="tables" element={<Tables />} />

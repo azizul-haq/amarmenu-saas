@@ -284,3 +284,74 @@ export interface AuditLog {
   manager_id?: string | null;
   created_at: string;
 }
+
+export interface CashShift {
+  id: string;
+  restaurant_id: string;
+  opened_by?: string | null;
+  closed_by?: string | null;
+  status: "open" | "closed";
+  opening_float: number;
+  opening_time: string;
+  closing_time?: string | null;
+  closing_count?: number | null;
+  expected_cash?: number | null;
+  discrepancy?: number | null;
+  total_sales?: number;
+  cash_sales?: number;
+  digital_sales?: number;
+  tax_collected?: number;
+  discount_total?: number;
+  total_orders?: number;
+  voided_orders?: number;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ZReportData {
+  success: boolean;
+  z_report_number: string;
+  shift_id: string;
+  status: "closed";
+  restaurant: {
+    id: string;
+    name: string;
+    name_bn?: string;
+    phone?: string;
+    address?: string;
+    vat_bin_no?: string;
+    trade_license_no?: string;
+  };
+  timings: {
+    opened_at: string;
+    closed_at: string;
+    opened_by: string;
+    closed_by: string;
+  };
+  cash_reconciliation: {
+    opening_float: number;
+    cash_sales: number;
+    expected_cash: number;
+    actual_cash_counted: number;
+    discrepancy: number;
+    is_balanced: boolean;
+    has_shortage: boolean;
+    has_overage: boolean;
+  };
+  sales_summary: {
+    gross_sales: number;
+    cash_sales: number;
+    digital_sales: number;
+    bkash_sales: number;
+    nagad_sales: number;
+    card_sales: number;
+    tax_collected: number;
+    discount_total: number;
+    completed_orders_count: number;
+    dine_in_orders_count: number;
+    takeaway_orders_count: number;
+    voided_orders_count: number;
+  };
+  notes?: string | null;
+}

@@ -6,15 +6,19 @@ import { Loading } from "../ui";
 interface ProtectedRouteProps {
   children: React.ReactNode;
   allowedRoles?: UserRole[];
+  requiredPermission?: string;
+  requiredPermissions?: string[];
   fallbackPath?: string;
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   children,
   allowedRoles,
+  requiredPermission,
+  requiredPermissions,
   fallbackPath = "/login",
 }) => {
-  const { user, role, loading } = useAuth();
+  const { user, role, hasPermission, loading } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -38,6 +42,20 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
         return <Navigate to="/admin/login" state={{ from: location }} replace />;
       }
       // Otherwise send to generic fallback
+      return <Navigate to={fallbackPath} state={{ from: location }} replace />;
+    }
+  }
+
+  // Check granular permission requirement
+  if (role !== "super_admin") {
+    if (requiredPermission && !hasPermission(requiredPermission)) {
+      return <Navigate to={fallbackPath} state={{ from: location }} replace />;
+    }
+    if (
+      requiredPermissions &&
+      requiredPermissions.length > 0 &&
+      !requiredPermissions.some((p) => hasPermission(p))
+    ) {
       return <Navigate to={fallbackPath} state={{ from: location }} replace />;
     }
   }

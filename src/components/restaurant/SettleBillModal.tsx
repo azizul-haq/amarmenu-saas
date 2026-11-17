@@ -6,6 +6,7 @@ import { settleOrderBill } from "../../services/restaurantService";
 import type { BillSettlementResult } from "../../services/restaurantService";
 import { cashSettlementSchema } from "../../schemas/billingSchema";
 import { Button } from "../ui";
+import { usePermissions } from "../../hooks/usePermissions";
 
 interface SettleBillModalProps {
   order: Order;
@@ -18,6 +19,7 @@ export const SettleBillModal: React.FC<SettleBillModalProps> = ({
   onClose,
   onSettled,
 }) => {
+  const { canApplyDiscount } = usePermissions();
   const [paymentMethod, setPaymentMethod] = useState<string>("cash");
   const [discount, setDiscount] = useState<number>(order.discount || 0);
   const [tenderedAmount, setTenderedAmount] = useState<number>(order.total);
@@ -174,14 +176,22 @@ export const SettleBillModal: React.FC<SettleBillModalProps> = ({
 
           {/* Discount Field */}
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              Discount (৳) (Optional)
-            </label>
+            <div className="flex justify-between items-center mb-1">
+              <label className="block text-xs font-semibold text-gray-700">
+                Discount (৳) (Optional)
+              </label>
+              {!canApplyDiscount && (
+                <span className="text-[10px] text-amber-700 font-medium bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                  Manager/Owner only
+                </span>
+              )}
+            </div>
             <input
               type="number"
               min="0"
               max={order.total}
               step="1"
+              disabled={!canApplyDiscount}
               value={discount || ""}
               onChange={(e) => {
                 const val = Math.max(0, Number(e.target.value) || 0);
@@ -190,8 +200,12 @@ export const SettleBillModal: React.FC<SettleBillModalProps> = ({
                   setTenderedAmount(Math.max(0, order.total - val));
                 }
               }}
-              placeholder="0.00"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              placeholder={canApplyDiscount ? "0.00" : "Discount requires manager/owner role"}
+              className={`w-full px-3 py-2 border rounded-lg text-sm ${
+                !canApplyDiscount
+                  ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                  : "border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              }`}
             />
           </div>
 

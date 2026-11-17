@@ -33,6 +33,7 @@ import {
 import type { MenuItem, MenuCategory } from "../../config/supabase";
 import { formatCurrency } from "../../utils/helpers";
 import { useAuth } from "../../context/AuthContext";
+import { usePermissions } from "../../hooks/usePermissions";
 import {
   menuItemSchema,
   menuCategorySchema,
@@ -42,6 +43,7 @@ import {
 
 const Menu: React.FC = () => {
   const { restaurantId } = useAuth();
+  const { canEditMenu, canDeleteMenu, canToggleAvailability } = usePermissions();
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,18 +123,20 @@ const Menu: React.FC = () => {
             Manage your bilingual menu items, sizes, add-ons & categories
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            icon={<FolderPlus className="w-4 h-4" />}
-            onClick={() => setShowCategoryModal(true)}
-          >
-            Categories
-          </Button>
-          <Button icon={<Plus className="w-5 h-5" />} onClick={handleOpenAdd}>
-            Add Item
-          </Button>
-        </div>
+        {canEditMenu && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              icon={<FolderPlus className="w-4 h-4" />}
+              onClick={() => setShowCategoryModal(true)}
+            >
+              Categories
+            </Button>
+            <Button icon={<Plus className="w-5 h-5" />} onClick={handleOpenAdd}>
+              Add Item
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Real-time Indicator */}
@@ -264,34 +268,40 @@ const Menu: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
-                  <Button
-                    size="sm"
-                    variant={item.is_available ? "outline" : "primary"}
-                    onClick={() => handleToggleAvailability(item)}
-                    fullWidth
-                  >
-                    {item.is_available ? "Sold Out" : "Enable"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    icon={<Edit className="w-3.5 h-3.5" />}
-                    onClick={() => handleOpenEdit(item)}
-                    fullWidth
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-error hover:bg-error/10 hover:border-error"
-                    icon={<Trash2 className="w-3.5 h-3.5" />}
-                    onClick={() => handleOpenDelete(item)}
-                    fullWidth
-                  >
-                    Delete
-                  </Button>
+                <div className="flex items-center gap-2">
+                  {canToggleAvailability && (
+                    <Button
+                      size="sm"
+                      variant={item.is_available ? "outline" : "primary"}
+                      onClick={() => handleToggleAvailability(item)}
+                      fullWidth
+                    >
+                      {item.is_available ? "Sold Out" : "Enable"}
+                    </Button>
+                  )}
+                  {canEditMenu && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      icon={<Edit className="w-3.5 h-3.5" />}
+                      onClick={() => handleOpenEdit(item)}
+                      fullWidth
+                    >
+                      Edit
+                    </Button>
+                  )}
+                  {canDeleteMenu && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-error hover:bg-error/10 hover:border-error"
+                      icon={<Trash2 className="w-3.5 h-3.5" />}
+                      onClick={() => handleOpenDelete(item)}
+                      fullWidth
+                    >
+                      Delete
+                    </Button>
+                  )}
                 </div>
               </div>
             </Card>

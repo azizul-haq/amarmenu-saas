@@ -13,6 +13,8 @@ interface AuthContextType {
   role: UserRole;
   restaurantId: string | null;
   restaurant: Restaurant | null;
+  permissions: string[];
+  hasPermission: (permission: string) => boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ success: boolean; role?: UserRole; error?: string }>;
   signOut: () => Promise<void>;
@@ -29,6 +31,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [role, setRole] = useState<UserRole>(null);
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
   const loadUserProfile = useCallback(async (currentUser: User): Promise<{
@@ -51,6 +54,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setProfile(null);
         setRestaurantId(null);
         setRestaurant(null);
+
+        // Super Admin gets all permissions dynamically from role_permissions
+        const { data: allPerms } = await supabase
+          .from("role_permissions")
+          .select("permission");
+        const uniquePerms = Array.from(
+          new Set((allPerms || []).map((p: { permission: string }) => p.permission))
+        );
+        setPermissions(uniquePerms);
+
         return { role: "super_admin", restaurant: null, restaurantId: null };
       }
 
@@ -68,6 +81,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRole(staff.role as UserRole);
         setRestaurantId(staff.restaurant_id);
         setPlatformAdmin(null);
+
+        // Fetch dynamic permissions for this role from the database
+        const { data: permData } = await supabase
+          .from("role_permissions")
+          .select("permission")
+          .eq("role", staff.role);
+        const rolePerms = (permData || []).map((p: { permission: string }) => p.permission);
+        setPermissions(rolePerms);
 
         // Load associated restaurant details
         let loadedRestaurant: Restaurant | null = null;
@@ -96,12 +117,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPlatformAdmin(null);
       setRestaurantId(null);
       setRestaurant(null);
+      setPermissions([]);
       return { role: null, restaurant: null, restaurantId: null };
     } catch (err) {
       console.error("Error loading user profile:", err);
+      setPermissions([]);
       return { role: null, restaurant: null, restaurantId: null };
     }
   }, []);
+
+  const hasPermission = useCallback(
+    (permission: string): boolean => {
+      if (role === "super_admin") return true;
+      return permissions.includes(permission);
+    },
+    [role, permissions]
+  );
 
   const refreshProfile = useCallback(async () => {
     if (user) {
@@ -123,6 +154,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (mounted) setLoading(false);
         });
       } else {
+        setPermissions([]);
         setLoading(false);
       }
     });
@@ -143,6 +175,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRole(null);
         setRestaurantId(null);
         setRestaurant(null);
+        setPermissions([]);
       }
       setLoading(false);
     });
@@ -197,6 +230,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setRole(null);
       setRestaurantId(null);
       setRestaurant(null);
+      setPermissions([]);
     } catch (err) {
       console.error("Sign out error:", err);
     } finally {
@@ -214,6 +248,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role,
         restaurantId,
         restaurant,
+        permissions,
+        hasPermission,
         loading,
         signIn,
         signOut,

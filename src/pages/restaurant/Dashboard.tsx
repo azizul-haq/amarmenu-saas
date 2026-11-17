@@ -5,6 +5,7 @@ import {
   Route,
   Link,
   useLocation,
+  Navigate,
 } from "react-router-dom";
 import {
   Store as StoreIcon,
@@ -25,8 +26,10 @@ import {
   Clock,
   Menu as MenuIcon,
   X,
+  Users,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { ProtectedRoute } from "../../components/auth/ProtectedRoute";
 import { supabase } from "../../config/supabase";
 import RestaurantHome from "./RestaurantHome";
 import Orders from "./Orders";
@@ -38,21 +41,26 @@ import RestaurantSettings from "./RestaurantSettings";
 import AuditLogsPage from "./AuditLogs";
 import ShiftsPage from "./Shifts";
 import SubscriptionPage from "./Subscription";
+import StaffPage from "./Staff";
+
+interface NavItem {
+  path: string;
+  icon: React.ElementType;
+  label: string;
+  badge?: number;
+  permission?: string;
+  anyPermissions?: string[];
+}
 
 interface NavGroup {
   title: string;
-  items: {
-    path: string;
-    icon: React.ElementType;
-    label: string;
-    badge?: number;
-  }[];
+  items: NavItem[];
 }
 
 const RestaurantDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, profile, restaurant, signOut } = useAuth();
+  const { user, profile, restaurant, role, hasPermission, signOut } = useAuth();
 
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("sidebar_collapsed") === "true";
@@ -134,34 +142,103 @@ const RestaurantDashboard: React.FC = () => {
     {
       title: "OPERATIONS",
       items: [
-        { path: "/restaurant", icon: LayoutDashboard, label: "Dashboard" },
+        {
+          path: "/restaurant",
+          icon: LayoutDashboard,
+          label: "Dashboard",
+          permission: "view_reports",
+        },
         {
           path: "/restaurant/orders",
           icon: ShoppingBag,
           label: "Live Orders",
           badge: pendingOrdersCount,
+          anyPermissions: ["confirm_order", "settle_bill", "update_kitchen_status"],
         },
-        { path: "/restaurant/tables", icon: QrCode, label: "Tables & Floor" },
-        { path: "/restaurant/kitchen", icon: ChefHat, label: "Kitchen KDS" },
+        {
+          path: "/restaurant/tables",
+          icon: QrCode,
+          label: "Tables & Floor",
+          anyPermissions: ["confirm_order", "settle_bill"],
+        },
+        {
+          path: "/restaurant/kitchen",
+          icon: ChefHat,
+          label: "Kitchen KDS",
+          permission: "update_kitchen_status",
+        },
       ],
     },
     {
       title: "FINANCE & AUDIT",
       items: [
-        { path: "/restaurant/shifts", icon: Calculator, label: "Cash Shifts & Z-Report" },
-        { path: "/restaurant/reports", icon: FileText, label: "Sales & NBR VAT" },
-        { path: "/restaurant/audit", icon: ShieldAlert, label: "Audit & Voids" },
+        {
+          path: "/restaurant/shifts",
+          icon: Calculator,
+          label: "Cash Shifts & Z-Report",
+          permission: "manage_shifts",
+        },
+        {
+          path: "/restaurant/reports",
+          icon: FileText,
+          label: "Sales & NBR VAT",
+          permission: "view_reports",
+        },
+        {
+          path: "/restaurant/audit",
+          icon: ShieldAlert,
+          label: "Audit & Voids",
+          permission: "view_reports",
+        },
       ],
     },
     {
       title: "MANAGEMENT",
       items: [
-        { path: "/restaurant/menu", icon: UtensilsCrossed, label: "Bilingual Menu" },
-        { path: "/restaurant/subscription", icon: CreditCard, label: "Subscription Plan" },
-        { path: "/restaurant/settings", icon: Settings, label: "Settings" },
+        {
+          path: "/restaurant/menu",
+          icon: UtensilsCrossed,
+          label: "Bilingual Menu",
+          anyPermissions: ["edit_menu", "toggle_availability"],
+        },
+        {
+          path: "/restaurant/staff",
+          icon: Users,
+          label: "Staff & Team",
+          permission: "manage_staff",
+        },
+        {
+          path: "/restaurant/subscription",
+          icon: CreditCard,
+          label: "Subscription Plan",
+          permission: "manage_subscription",
+        },
+        {
+          path: "/restaurant/settings",
+          icon: Settings,
+          label: "Settings",
+          permission: "change_settings",
+        },
       ],
     },
   ];
+
+  const visibleNavGroups = navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => {
+        if (role === "super_admin") return true;
+        if (item.permission && !hasPermission(item.permission)) return false;
+        if (
+          item.anyPermissions &&
+          !item.anyPermissions.some((p) => hasPermission(p))
+        ) {
+          return false;
+        }
+        return true;
+      }),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -226,7 +303,7 @@ const RestaurantDashboard: React.FC = () => {
 
         {/* Navigation List */}
         <div className="flex-1 overflow-y-auto py-4 px-3 space-y-6">
-          {navGroups.map((group, gIdx) => (
+          {visibleNavGroups.map((group, gIdx) => (
             <div key={gIdx} className="space-y-1">
               {!isCollapsed && (
                 <p className="px-3 text-[11px] font-semibold text-slate-400 tracking-wider mb-2">
@@ -400,16 +477,98 @@ const RestaurantDashboard: React.FC = () => {
         {/* Dynamic Route Content Canvas */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
           <Routes>
-            <Route index element={<RestaurantHome />} />
+            <Route
+              index
+              element={
+                role === "super_admin" || hasPermission("view_reports") ? (
+                  <RestaurantHome />
+                ) : role === "kitchen" ? (
+                  <Navigate to="/restaurant/kitchen" replace />
+                ) : (
+                  <Navigate to="/restaurant/orders" replace />
+                )
+              }
+            />
             <Route path="orders" element={<Orders />} />
-            <Route path="shifts" element={<ShiftsPage />} />
-            <Route path="kitchen" element={<KitchenKDS />} />
-            <Route path="menu" element={<Menu />} />
-            <Route path="tables" element={<Tables />} />
-            <Route path="reports" element={<Reports />} />
-            <Route path="audit" element={<AuditLogsPage />} />
-            <Route path="subscription" element={<SubscriptionPage />} />
-            <Route path="settings" element={<RestaurantSettings />} />
+            <Route
+              path="shifts"
+              element={
+                <ProtectedRoute requiredPermission="manage_shifts" fallbackPath="/restaurant/orders">
+                  <ShiftsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="kitchen"
+              element={
+                <ProtectedRoute requiredPermission="update_kitchen_status" fallbackPath="/restaurant/orders">
+                  <KitchenKDS />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="menu"
+              element={
+                <ProtectedRoute
+                  requiredPermissions={["edit_menu", "toggle_availability"]}
+                  fallbackPath="/restaurant/orders"
+                >
+                  <Menu />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="tables"
+              element={
+                <ProtectedRoute
+                  requiredPermissions={["confirm_order", "settle_bill"]}
+                  fallbackPath="/restaurant/orders"
+                >
+                  <Tables />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="reports"
+              element={
+                <ProtectedRoute requiredPermission="view_reports" fallbackPath="/restaurant/orders">
+                  <Reports />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="audit"
+              element={
+                <ProtectedRoute requiredPermission="view_reports" fallbackPath="/restaurant/orders">
+                  <AuditLogsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="staff"
+              element={
+                <ProtectedRoute requiredPermission="manage_staff" fallbackPath="/restaurant/orders">
+                  <StaffPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="subscription"
+              element={
+                <ProtectedRoute requiredPermission="manage_subscription" fallbackPath="/restaurant/orders">
+                  <SubscriptionPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="settings"
+              element={
+                <ProtectedRoute requiredPermission="change_settings" fallbackPath="/restaurant/orders">
+                  <RestaurantSettings />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="*" element={<Navigate to="/restaurant" replace />} />
           </Routes>
         </main>
       </div>

@@ -183,6 +183,8 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
       "get_mushak_6_3_report",
       "submit_subscription_payment",
       "current_restaurant_id",
+      "has_permission",
+      "get_staff_permissions",
       // Super admin
       "admin_create_restaurant",
       "admin_reject_request",

@@ -42,6 +42,7 @@ import type { VoidOrderResult } from "../../services/auditService";
 import type { Order, OrderItem, Restaurant } from "../../config/supabase";
 import { supabase } from "../../config/supabase";
 import { formatDateTime, formatCurrency, playSound } from "../../utils/helpers";
+import { usePermissions } from "../../hooks/usePermissions";
 
 const Orders: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -57,6 +58,13 @@ const Orders: React.FC = () => {
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const [restaurantName, setRestaurantName] = useState("Restaurant");
   const [restaurantData, setRestaurantData] = useState<Restaurant | null>(null);
+  const {
+    canConfirmOrder,
+    canUpdateKitchenStatus,
+    canSettleBill,
+    canVoidOrder,
+    canVoidSettledBill,
+  } = usePermissions();
   const previousOrdersRef = useRef<Order[]>([]);
 
   useEffect(() => {
@@ -382,7 +390,7 @@ const Orders: React.FC = () => {
 
                         {/* Action Buttons */}
                         <div className="pt-2 space-y-1.5 border-t border-slate-100">
-                          {col.id === "pending" && (
+                          {col.id === "pending" && canConfirmOrder && (
                             <div className="flex items-center gap-1.5">
                               <button
                                 onClick={() => handleStatusUpdate(order.id, "accepted")}
@@ -404,7 +412,7 @@ const Orders: React.FC = () => {
                             </div>
                           )}
 
-                          {col.id === "accepted" && (
+                          {col.id === "accepted" && canUpdateKitchenStatus && (
                             <button
                               onClick={() => handleStatusUpdate(order.id, "preparing")}
                               className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
@@ -414,7 +422,7 @@ const Orders: React.FC = () => {
                             </button>
                           )}
 
-                          {col.id === "preparing" && (
+                          {col.id === "preparing" && canUpdateKitchenStatus && (
                             <button
                               onClick={() => handleStatusUpdate(order.id, "ready")}
                               className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
@@ -424,7 +432,7 @@ const Orders: React.FC = () => {
                             </button>
                           )}
 
-                          {col.id === "ready" && (
+                          {col.id === "ready" && canSettleBill && (
                             <button
                               onClick={() => setSettleOrder(order)}
                               className="w-full py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
@@ -452,12 +460,14 @@ const Orders: React.FC = () => {
                               <Printer className="w-3 h-3" />
                               <span>KOT ({order.kot_print_count || 0})</span>
                             </button>
-                            <button
-                              onClick={() => setVoidOrder(order)}
-                              className="hover:text-red-600"
-                            >
-                              Void PIN
-                            </button>
+                            {(canVoidOrder || canVoidSettledBill) && (
+                              <button
+                                onClick={() => setVoidOrder(order)}
+                                className="hover:text-red-600"
+                              >
+                                Void PIN
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -634,7 +644,7 @@ const Orders: React.FC = () => {
                   </div>
 
                   {/* Pending: Waiter Verify & Confirm */}
-                  {order.status === "pending" && (
+                  {order.status === "pending" && canConfirmOrder && (
                     <>
                       <Button
                         variant="primary"
@@ -661,7 +671,7 @@ const Orders: React.FC = () => {
                   )}
 
                   {/* Accepted: Kitchen Start Cooking */}
-                  {order.status === "accepted" && (
+                  {order.status === "accepted" && canUpdateKitchenStatus && (
                     <>
                       <Button
                         variant="secondary"
@@ -687,7 +697,7 @@ const Orders: React.FC = () => {
                   )}
 
                   {/* Preparing: Kitchen Mark Ready */}
-                  {order.status === "preparing" && (
+                  {order.status === "preparing" && canUpdateKitchenStatus && (
                     <>
                       <Button
                         variant="secondary"
@@ -713,7 +723,7 @@ const Orders: React.FC = () => {
                   )}
 
                   {/* Ready: Settle Bill & Complete */}
-                  {order.status === "ready" && (
+                  {order.status === "ready" && canSettleBill && (
                     <>
                       <Button
                         variant="secondary"
@@ -752,16 +762,18 @@ const Orders: React.FC = () => {
                         <Receipt className="w-4 h-4" />
                         <span>Print Bill Receipt</span>
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        fullWidth
-                        className="text-[11px] text-red-600 hover:bg-red-50 flex items-center justify-center gap-1"
-                        onClick={() => setVoidOrder(order)}
-                      >
-                        <ShieldAlert className="w-3.5 h-3.5" />
-                        <span>Void Bill (Manager PIN)</span>
-                      </Button>
+                      {canVoidSettledBill && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          fullWidth
+                          className="text-[11px] text-red-600 hover:bg-red-50 flex items-center justify-center gap-1"
+                          onClick={() => setVoidOrder(order)}
+                        >
+                          <ShieldAlert className="w-3.5 h-3.5" />
+                          <span>Void Bill (Manager PIN)</span>
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>

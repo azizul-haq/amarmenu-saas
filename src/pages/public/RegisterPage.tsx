@@ -117,11 +117,13 @@ const RegisterPage: React.FC = () => {
 
       // TODO: In production, send confirmation email to restaurant
       // TODO: Send notification to admin panel
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Registration error:", err);
-      setError(
-        err.message || "Failed to submit registration. Please try again."
-      );
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : "Failed to submit registration. Please try again.";
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

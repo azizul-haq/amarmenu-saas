@@ -15,6 +15,9 @@ import {
   Receipt,
   DollarSign,
   ShieldAlert,
+  LayoutGrid,
+  List,
+  ChefHat,
 } from "lucide-react";
 import {
   Card,
@@ -51,6 +54,7 @@ const Orders: React.FC = () => {
   const [settleOrder, setSettleOrder] = useState<Order | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const [voidOrder, setVoidOrder] = useState<Order | null>(null);
+  const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const [restaurantName, setRestaurantName] = useState("Restaurant");
   const [restaurantData, setRestaurantData] = useState<Restaurant | null>(null);
   const previousOrdersRef = useRef<Order[]>([]);
@@ -179,6 +183,15 @@ const Orders: React.FC = () => {
     }
   };
 
+  const getElapsedMinutes = (dateStr: string) => {
+    const diffMs = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return "Just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    return `${hrs}h ${mins % 60}m ago`;
+  };
+
   if (loading) {
     return <Loading text="Loading orders..." />;
   }
@@ -186,37 +199,281 @@ const Orders: React.FC = () => {
   const pendingCount = orders.filter((o) => o.status === "pending").length;
   const readyCount = orders.filter((o) => o.status === "ready").length;
 
+  const kanbanColumns = [
+    {
+      id: "pending",
+      title: "Pending Verification",
+      badgeColor: "bg-amber-100 text-amber-800 border-amber-300",
+      headerBg: "bg-amber-500",
+      borderTop: "border-t-4 border-amber-500",
+      orders: orders.filter((o) => o.status === "pending"),
+    },
+    {
+      id: "accepted",
+      title: "To Cook / Kitchen",
+      badgeColor: "bg-blue-100 text-blue-800 border-blue-300",
+      headerBg: "bg-blue-600",
+      borderTop: "border-t-4 border-blue-600",
+      orders: orders.filter((o) => o.status === "accepted"),
+    },
+    {
+      id: "preparing",
+      title: "Cooking in Kitchen",
+      badgeColor: "bg-orange-100 text-orange-800 border-orange-300",
+      headerBg: "bg-orange-600",
+      borderTop: "border-t-4 border-orange-600",
+      orders: orders.filter((o) => o.status === "preparing"),
+    },
+    {
+      id: "ready",
+      title: "Ready to Serve",
+      badgeColor: "bg-emerald-100 text-emerald-800 border-emerald-300",
+      headerBg: "bg-emerald-600",
+      borderTop: "border-t-4 border-emerald-600",
+      orders: orders.filter((o) => o.status === "ready"),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-text mb-2">Orders</h2>
-          <p className="text-text-secondary">
-            Manage, verify, and track customer orders in real-time
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Live Orders Hub</h2>
+          <p className="text-sm text-slate-500">
+            Real-time multi-stage pipeline, waiter confirmation, and cashier settlement
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {readyCount > 0 && (
-            <Badge variant="warning" className="text-sm px-3 py-1 font-bold">
-              🔔 {readyCount} Ready to Serve
+            <Badge variant="warning" className="text-xs px-2.5 py-1 font-bold">
+              🔔 {readyCount} Ready
             </Badge>
           )}
           {pendingCount > 0 && (
-            <Badge variant="warning" className="text-sm px-3 py-1 animate-pulse font-bold">
-              ⚡ {pendingCount} Pending Confirmation
+            <Badge variant="warning" className="text-xs px-2.5 py-1 animate-pulse font-bold">
+              ⚡ {pendingCount} Pending
             </Badge>
           )}
+
+          {/* Dual View Mode Toggle */}
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <button
+              onClick={() => setViewMode("kanban")}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === "kanban"
+                  ? "bg-white text-orange-600 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>Ticket Board</span>
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === "list"
+                  ? "bg-white text-orange-600 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <List className="w-3.5 h-3.5" />
+              <span>Data List</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Real-time indicator */}
-      <div className="flex items-center space-x-2 text-sm text-success">
-        <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
-        <span>Live order updates • Waiter confirmation active</span>
+      <div className="flex items-center space-x-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg w-fit">
+        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+        <span>Live Realtime Sync • Waiter confirmation active</span>
       </div>
 
-      {/* Status Filter Tabs */}
+      {viewMode === "kanban" ? (
+        /* ================================================================ */
+        /* KANBAN TICKET BOARD VIEW (Inspired by Reference Screens 3-5)      */
+        /* ================================================================ */
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
+          {kanbanColumns.map((col) => (
+            <div
+              key={col.id}
+              className="bg-slate-100/80 rounded-2xl border border-slate-200 p-3 space-y-3"
+            >
+              {/* Column Header */}
+              <div className="flex items-center justify-between px-1 py-1">
+                <div className="flex items-center space-x-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${col.headerBg}`} />
+                  <h3 className="font-bold text-xs text-slate-800 uppercase tracking-wider">
+                    {col.title}
+                  </h3>
+                </div>
+                <span
+                  className={`text-xs font-black px-2 py-0.5 rounded-full border ${col.badgeColor}`}
+                >
+                  {col.orders.length}
+                </span>
+              </div>
+
+              {/* Order Cards */}
+              {col.orders.length === 0 ? (
+                <div className="text-center py-10 text-slate-400 text-xs bg-white/50 rounded-xl border border-dashed border-slate-200">
+                  No active tickets
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {col.orders.map((order) => {
+                    const elapsed = getElapsedMinutes(order.created_at);
+                    return (
+                      <div
+                        key={order.id}
+                        className={`bg-white rounded-xl border border-slate-200/90 p-3.5 shadow-xs transition-all hover:shadow-md ${col.borderTop}`}
+                      >
+                        {/* Top Bar: Table & Elapsed */}
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-black text-xs px-2.5 py-0.5 rounded-md bg-slate-900 text-white">
+                            {order.order_type === "counter"
+                              ? "Takeaway"
+                              : `Table ${order.table_number || "QR"}`}
+                          </span>
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            ⏱ {elapsed}
+                          </span>
+                        </div>
+
+                        {/* Order Number & Price */}
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-mono font-bold text-xs text-slate-800">
+                            #{order.order_number}
+                          </span>
+                          <span className="font-black text-sm text-slate-900">
+                            {formatCurrency(order.total)}
+                          </span>
+                        </div>
+
+                        {/* Customer Phone if present */}
+                        {order.customer_phone && (
+                          <p className="text-[11px] font-mono text-slate-500 mb-2 truncate">
+                            📞 {order.customer_phone}
+                          </p>
+                        )}
+
+                        {/* Items Checklist */}
+                        <div className="bg-slate-50 rounded-lg p-2.5 text-xs space-y-1 my-2 border border-slate-100">
+                          {order.items?.map((item, idx) => (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-between text-slate-700 text-[11px]"
+                            >
+                              <span className="truncate pr-1">
+                                <span className="font-bold text-orange-600 mr-1.5">
+                                  {item.quantity}x
+                                </span>
+                                {item.name}
+                              </span>
+                            </div>
+                          ))}
+                          {order.customer_notes && (
+                            <p className="text-[10px] text-amber-800 bg-amber-50 rounded px-1.5 py-0.5 mt-1 truncate">
+                              💬 {order.customer_notes}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="pt-2 space-y-1.5 border-t border-slate-100">
+                          {col.id === "pending" && (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => handleStatusUpdate(order.id, "accepted")}
+                                className="flex-1 py-2 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Verify & Accept</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setSelectedOrder(order);
+                                  setShowRejectModal(true);
+                                }}
+                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-red-200"
+                                title="Reject order"
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+
+                          {col.id === "accepted" && (
+                            <button
+                              onClick={() => handleStatusUpdate(order.id, "preparing")}
+                              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
+                            >
+                              <ChefHat className="w-3.5 h-3.5" />
+                              <span>Start Cooking</span>
+                            </button>
+                          )}
+
+                          {col.id === "preparing" && (
+                            <button
+                              onClick={() => handleStatusUpdate(order.id, "ready")}
+                              className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              <span>Mark Ready to Serve</span>
+                            </button>
+                          )}
+
+                          {col.id === "ready" && (
+                            <button
+                              onClick={() => setSettleOrder(order)}
+                              className="w-full py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
+                            >
+                              <DollarSign className="w-3.5 h-3.5" />
+                              <span>Settle Bill & Free Table</span>
+                            </button>
+                          )}
+
+                          {/* Secondary Utilities */}
+                          <div className="flex items-center justify-between text-[11px] pt-1 text-slate-400">
+                            <button
+                              onClick={() => {
+                                setSelectedOrder(order);
+                                setShowDetailsModal(true);
+                              }}
+                              className="hover:text-slate-800 underline"
+                            >
+                              Details
+                            </button>
+                            <button
+                              onClick={() => handlePrintKOT(order)}
+                              className="hover:text-slate-800 flex items-center space-x-0.5"
+                            >
+                              <Printer className="w-3 h-3" />
+                              <span>KOT ({order.kot_print_count || 0})</span>
+                            </button>
+                            <button
+                              onClick={() => setVoidOrder(order)}
+                              className="hover:text-red-600"
+                            >
+                              Void PIN
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        /* ================================================================ */
+        /* DATA TABLE / LIST VIEW                                           */
+        /* ================================================================ */
+        <div className="space-y-4">
+          {/* Status Filter Tabs */}
       <div className="flex flex-wrap gap-2">
         {[
           { id: "all", label: "All" },
@@ -513,6 +770,8 @@ const Orders: React.FC = () => {
           ))}
         </div>
       )}
+    </div>
+  )}
 
       {/* Order Details Modal */}
       <OrderDetailsModal

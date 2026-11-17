@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { Plus, Edit, Trash2, Eye, EyeOff, Search, Package } from "lucide-react";
+import {
+  Plus,
+  Edit,
+  Trash2,
+  Search,
+  Package,
+  FolderPlus,
+  Layers,
+  Sparkles,
+} from "lucide-react";
 import {
   Card,
   Button,
@@ -9,52 +18,69 @@ import {
   Loading,
   Alert,
   Textarea,
+  Select,
 } from "../../components/ui";
 import {
   subscribeToMenuItems,
+  subscribeToCategories,
   createMenuItem,
   updateMenuItem,
   deleteMenuItem,
   toggleMenuItemAvailability,
+  createCategory,
+  deleteCategory,
 } from "../../services/restaurantService";
-import type { MenuItem } from "../../config/supabase";
+import type { MenuItem, MenuCategory } from "../../config/supabase";
 import { formatCurrency } from "../../utils/helpers";
+import { useAuth } from "../../context/AuthContext";
+import {
+  menuItemSchema,
+  menuCategorySchema,
+  type SizeVariant,
+  type AddonVariant,
+} from "../../schemas/menuSchema";
 
 const Menu: React.FC = () => {
+  const { restaurantId } = useAuth();
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
+
+  // Modals
+  const [showItemModal, setShowItemModal] = useState(false);
+  const [itemModalMode, setItemModalMode] = useState<"add" | "edit">("add");
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem("user") || "{}");
-    if (!user.restaurant_id) return;
+    if (!restaurantId) return;
 
-    const subscription = subscribeToMenuItems(user.restaurant_id, (data) => {
-      setMenuItems(data);
+    const itemSub = subscribeToMenuItems(restaurantId, (items) => {
+      setMenuItems(items);
       setLoading(false);
     });
 
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
+    const catSub = subscribeToCategories(restaurantId, (cats) => {
+      setCategories(cats);
+    });
 
-  const categories = [
-    "all",
-    ...new Set(menuItems.map((item) => item.category).filter(Boolean)),
-  ];
+    return () => {
+      itemSub.unsubscribe();
+      catSub.unsubscribe();
+    };
+  }, [restaurantId]);
 
   const filteredItems = menuItems.filter((item) => {
-    const matchesSearch = item.name
-      .toLowerCase()
-      .includes(searchTerm.toLowerCase());
+    const matchesSearch =
+      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.name_bn && item.name_bn.includes(searchTerm));
     const matchesCategory =
-      categoryFilter === "all" || item.category === categoryFilter;
+      categoryFilter === "all" ||
+      item.category_id === categoryFilter ||
+      item.category === categoryFilter;
     return matchesSearch && matchesCategory;
   });
 
@@ -62,12 +88,19 @@ const Menu: React.FC = () => {
     await toggleMenuItemAvailability(item.id, !item.is_available);
   };
 
-  const handleEdit = (item: MenuItem) => {
-    setSelectedItem(item);
-    setShowEditModal(true);
+  const handleOpenAdd = () => {
+    setSelectedItem(null);
+    setItemModalMode("add");
+    setShowItemModal(true);
   };
 
-  const handleDelete = (item: MenuItem) => {
+  const handleOpenEdit = (item: MenuItem) => {
+    setSelectedItem(item);
+    setItemModalMode("edit");
+    setShowItemModal(true);
+  };
+
+  const handleOpenDelete = (item: MenuItem) => {
     setSelectedItem(item);
     setShowDeleteModal(true);
   };
@@ -79,172 +112,172 @@ const Menu: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-text mb-2">Menu Management</h2>
-          <p className="text-text-secondary">
-            Manage your menu items and availability
+          <h2 className="text-2xl font-bold text-text mb-1">
+            Menu Management / মেনু ব্যবস্থাপনা
+          </h2>
+          <p className="text-text-secondary text-sm">
+            Manage your bilingual menu items, sizes, add-ons & categories
           </p>
         </div>
-        <Button
-          icon={<Plus className="w-5 h-5" />}
-          onClick={() => setShowAddModal(true)}
-        >
-          Add Item
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            icon={<FolderPlus className="w-4 h-4" />}
+            onClick={() => setShowCategoryModal(true)}
+          >
+            Categories
+          </Button>
+          <Button icon={<Plus className="w-5 h-5" />} onClick={handleOpenAdd}>
+            Add Item
+          </Button>
+        </div>
       </div>
 
-      {/* Real-time indicator */}
-      <div className="flex items-center space-x-2 text-sm text-success">
+      {/* Real-time Indicator */}
+      <div className="flex items-center space-x-2 text-xs text-success bg-success/5 border border-success/20 px-3 py-1.5 rounded-lg w-fit">
         <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
-        <span>
-          Live updates • Availability changes update customers in real-time
-        </span>
+        <span>Live Tenant Menu • Availability changes reflect instantly to customers</span>
       </div>
 
-      {/* Search and Filter */}
+      {/* Search and Category Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="flex-1">
           <Input
-            placeholder="Search menu items..."
+            placeholder="Search items by English or বাংলা..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             icon={<Search className="w-5 h-5" />}
           />
         </div>
         <div className="flex gap-2 overflow-x-auto pb-2">
-          {categories.map((category) => (
+          <button
+            onClick={() => setCategoryFilter("all")}
+            className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap text-sm transition-colors ${
+              categoryFilter === "all"
+                ? "bg-accent text-white"
+                : "bg-white border border-border text-text-secondary hover:bg-bg-subtle"
+            }`}
+          >
+            All Items ({menuItems.length})
+          </button>
+          {categories.map((cat) => (
             <button
-              key={category}
-              onClick={() => setCategoryFilter(category || "all")}
-              className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-colors ${
-                categoryFilter === category
+              key={cat.id}
+              onClick={() => setCategoryFilter(cat.id)}
+              className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap text-sm transition-colors ${
+                categoryFilter === cat.id
                   ? "bg-accent text-white"
                   : "bg-white border border-border text-text-secondary hover:bg-bg-subtle"
               }`}
             >
-              {category === "all" ? "All Items" : category}
+              {cat.name} {cat.name_bn ? `(${cat.name_bn})` : ""}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Menu Items */}
+      {/* Menu Items Grid */}
       {filteredItems.length === 0 ? (
         <Card className="text-center py-12">
-          <Package className="w-16 h-16 text-text-secondary mx-auto mb-4 opacity-50" />
-          <h3 className="text-xl font-semibold text-text mb-2">
+          <Package className="w-16 h-16 text-text-secondary mx-auto mb-4 opacity-40" />
+          <h3 className="text-lg font-semibold text-text mb-1">
             No Menu Items Found
           </h3>
-          <p className="text-text-secondary mb-4">
+          <p className="text-text-secondary text-sm mb-4">
             {searchTerm || categoryFilter !== "all"
               ? "Try adjusting your filters"
-              : "Start by adding your first menu item"}
+              : "Add your first delicious food item to your menu"}
           </p>
-          <Button
-            icon={<Plus className="w-5 h-5" />}
-            onClick={() => setShowAddModal(true)}
-          >
+          <Button icon={<Plus className="w-4 h-4" />} onClick={handleOpenAdd}>
             Add First Item
           </Button>
         </Card>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredItems.map((item) => (
-            <Card
-              key={item.id}
-              className={`hover:shadow-lg transition-shadow ${
-                !item.is_available ? "opacity-60" : ""
-              }`}
-            >
-              <div className="flex flex-col lg:flex-row gap-4">
-                {/* Image */}
-                {item.image_url && (
-                  <img
-                    src={item.image_url}
-                    alt={item.name}
-                    className="w-full lg:w-32 h-32 object-cover rounded-lg"
-                  />
+            <Card key={item.id} className="overflow-hidden flex flex-col justify-between">
+              <div>
+                {/* Item Image */}
+                {item.image_url ? (
+                  <div className="relative h-44 -mx-6 -mt-6 mb-4 bg-bg-subtle overflow-hidden">
+                    <img
+                      src={item.image_url}
+                      alt={item.name}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute top-3 right-3 flex gap-1">
+                      <Badge variant={item.is_available ? "success" : "neutral"}>
+                        {item.is_available ? "Available" : "Sold Out"}
+                      </Badge>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between mb-3">
+                    <Badge variant={item.is_available ? "success" : "neutral"}>
+                      {item.is_available ? "Available" : "Sold Out"}
+                    </Badge>
+                  </div>
                 )}
 
-                {/* Details */}
-                <div className="flex-1 space-y-2">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center space-x-2 mb-1">
-                        <h3 className="text-lg font-bold text-text">
-                          {item.name}
-                        </h3>
-                        <Badge
-                          variant={item.is_available ? "success" : "neutral"}
-                        >
-                          {item.is_available ? "Available" : "Unavailable"}
-                        </Badge>
-                      </div>
-                      {item.category && (
-                        <Badge variant="neutral" className="text-xs">
-                          {item.category}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-
-                  {item.description && (
-                    <p className="text-text-secondary text-sm">
-                      {item.description}
+                {/* Title & Bilingual Name */}
+                <div className="mb-2">
+                  <h3 className="text-lg font-bold text-text">{item.name}</h3>
+                  {item.name_bn && (
+                    <p className="text-sm font-medium text-accent">
+                      {item.name_bn}
                     </p>
                   )}
-
-                  <div className="flex flex-wrap items-center gap-4 text-sm">
-                    <div>
-                      <span className="text-text-secondary">Base Price: </span>
-                      <span className="text-accent font-semibold text-lg">
-                        {formatCurrency(item.base_price)}
-                      </span>
-                    </div>
-
-                    {item.sizes && item.sizes.length > 0 && (
-                      <div>
-                        <span className="text-text-secondary">Sizes: </span>
-                        <span className="text-text">
-                          {item.sizes.map((s) => s.name).join(", ")}
-                        </span>
-                      </div>
-                    )}
-
-                    {item.addons && item.addons.length > 0 && (
-                      <div>
-                        <span className="text-text-secondary">Add-ons: </span>
-                        <span className="text-text">
-                          {item.addons.length} available
-                        </span>
-                      </div>
-                    )}
-                  </div>
                 </div>
 
-                {/* Actions */}
-                <div className="flex lg:flex-col gap-2 lg:min-w-[140px]">
+                {/* Description */}
+                {(item.description || item.description_bn) && (
+                  <p className="text-text-secondary text-xs line-clamp-2 mb-3">
+                    {item.description || item.description_bn}
+                  </p>
+                )}
+
+                {/* Sizes and Addons badges */}
+                <div className="flex flex-wrap gap-1.5 mb-4">
+                  {item.sizes && item.sizes.length > 0 && (
+                    <span className="inline-flex items-center text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">
+                      <Layers className="w-3 h-3 mr-1" />
+                      {item.sizes.length} Sizes
+                    </span>
+                  )}
+                  {item.addons && item.addons.length > 0 && (
+                    <span className="inline-flex items-center text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded border border-purple-200">
+                      <Sparkles className="w-3 h-3 mr-1" />
+                      {item.addons.length} Add-ons
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Price & Actions */}
+              <div className="pt-3 border-t border-border mt-auto">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs text-text-secondary">Base Price</span>
+                  <span className="text-lg font-bold text-text">
+                    {formatCurrency(item.base_price)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
                   <Button
                     size="sm"
-                    variant={item.is_available ? "outline" : "secondary"}
-                    icon={
-                      item.is_available ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )
-                    }
+                    variant={item.is_available ? "outline" : "primary"}
                     onClick={() => handleToggleAvailability(item)}
                     fullWidth
                   >
-                    {item.is_available ? "Mark Unavailable" : "Mark Available"}
+                    {item.is_available ? "Sold Out" : "Enable"}
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
-                    icon={<Edit className="w-4 h-4" />}
-                    onClick={() => handleEdit(item)}
+                    icon={<Edit className="w-3.5 h-3.5" />}
+                    onClick={() => handleOpenEdit(item)}
                     fullWidth
                   >
                     Edit
@@ -252,8 +285,9 @@ const Menu: React.FC = () => {
                   <Button
                     size="sm"
                     variant="outline"
-                    icon={<Trash2 className="w-4 h-4" />}
-                    onClick={() => handleDelete(item)}
+                    className="text-error hover:bg-error/10 hover:border-error"
+                    icon={<Trash2 className="w-3.5 h-3.5" />}
+                    onClick={() => handleOpenDelete(item)}
                     fullWidth
                   >
                     Delete
@@ -265,344 +299,404 @@ const Menu: React.FC = () => {
         </div>
       )}
 
-      {/* Add/Edit Modals */}
-      <MenuItemModal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        mode="add"
-      />
-
-      <MenuItemModal
-        isOpen={showEditModal}
+      {/* Add / Edit Item Modal */}
+      <ItemModal
+        isOpen={showItemModal}
         item={selectedItem}
+        categories={categories}
+        restaurantId={restaurantId || ""}
+        mode={itemModalMode}
         onClose={() => {
-          setShowEditModal(false);
-          setSelectedItem(null);
-        }}
-        mode="edit"
-      />
-
-      {/* Delete Modal */}
-      <DeleteModal
-        isOpen={showDeleteModal}
-        item={selectedItem}
-        onClose={() => {
-          setShowDeleteModal(false);
+          setShowItemModal(false);
           setSelectedItem(null);
         }}
       />
+
+      {/* Categories Management Modal */}
+      <CategoriesModal
+        isOpen={showCategoryModal}
+        categories={categories}
+        restaurantId={restaurantId || ""}
+        onClose={() => setShowCategoryModal(false)}
+      />
+
+      {/* Soft Delete Modal */}
+      {selectedItem && (
+        <DeleteConfirmModal
+          isOpen={showDeleteModal}
+          item={selectedItem}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setSelectedItem(null);
+          }}
+        />
+      )}
     </div>
   );
 };
 
-// Menu Item Modal (Add/Edit)
-interface MenuItemModalProps {
+// ============================================================================
+// Item Form Modal (Add/Edit) with Zod Validation
+// ============================================================================
+interface ItemModalProps {
   isOpen: boolean;
-  item?: MenuItem | null;
-  onClose: () => void;
+  item: MenuItem | null;
+  categories: MenuCategory[];
+  restaurantId: string;
   mode: "add" | "edit";
+  onClose: () => void;
 }
 
-const MenuItemModal: React.FC<MenuItemModalProps> = ({
+const ItemModal: React.FC<ItemModalProps> = ({
   isOpen,
   item,
-  onClose,
+  categories,
+  restaurantId,
   mode,
+  onClose,
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
   const [formData, setFormData] = useState({
     name: "",
+    name_bn: "",
     description: "",
-    category: "",
+    description_bn: "",
+    category_id: "",
     base_price: "",
     image_url: "",
     is_available: true,
-    sizes: [] as { name: string; price: number }[],
-    addons: [] as { name: string; price: number }[],
   });
 
-  const [newSize, setNewSize] = useState({ name: "", price: "" });
-  const [newAddon, setNewAddon] = useState({ name: "", price: "" });
+  const [sizes, setSizes] = useState<SizeVariant[]>([]);
+  const [newSize, setNewSize] = useState({ name: "", name_bn: "", price: "" });
+
+  const [addons, setAddons] = useState<AddonVariant[]>([]);
+  const [newAddon, setNewAddon] = useState({ name: "", name_bn: "", price: "" });
 
   useEffect(() => {
     if (mode === "edit" && item) {
       setFormData({
-        name: item.name,
+        name: item.name || "",
+        name_bn: item.name_bn || "",
         description: item.description || "",
-        category: item.category || "",
-        base_price: item.base_price.toString(),
+        description_bn: item.description_bn || "",
+        category_id: item.category_id || "",
+        base_price: item.base_price?.toString() || "",
         image_url: item.image_url || "",
-        is_available: item.is_available,
-        sizes: item.sizes || [],
-        addons: item.addons || [],
+        is_available: item.is_available ?? true,
       });
+      setSizes(item.sizes || []);
+      setAddons(item.addons || []);
     } else {
       setFormData({
         name: "",
+        name_bn: "",
         description: "",
-        category: "",
+        description_bn: "",
+        category_id: categories[0]?.id || "",
         base_price: "",
         image_url: "",
         is_available: true,
-        sizes: [],
-        addons: [],
       });
+      setSizes([]);
+      setAddons([]);
     }
-  }, [mode, item, isOpen]);
+    setError("");
+    setFieldErrors({});
+  }, [mode, item, isOpen, categories]);
+
+  const handleAddSize = () => {
+    if (!newSize.name || !newSize.price) return;
+    const priceNum = parseFloat(newSize.price);
+    if (isNaN(priceNum) || priceNum < 0) return;
+
+    setSizes([...sizes, { name: newSize.name, name_bn: newSize.name_bn || undefined, price: priceNum }]);
+    setNewSize({ name: "", name_bn: "", price: "" });
+  };
+
+  const handleRemoveSize = (index: number) => {
+    setSizes(sizes.filter((_, i) => i !== index));
+  };
+
+  const handleAddAddon = () => {
+    if (!newAddon.name || !newAddon.price) return;
+    const priceNum = parseFloat(newAddon.price);
+    if (isNaN(priceNum) || priceNum < 0) return;
+
+    setAddons([...addons, { name: newAddon.name, name_bn: newAddon.name_bn || undefined, price: priceNum }]);
+    setNewAddon({ name: "", name_bn: "", price: "" });
+  };
+
+  const handleRemoveAddon = (index: number) => {
+    setAddons(addons.filter((_, i) => i !== index));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setFieldErrors({});
 
-    if (!formData.name || !formData.base_price) {
-      setError("Name and base price are required");
-      return;
-    }
+    const rawData = {
+      name: formData.name.trim(),
+      name_bn: formData.name_bn.trim() || undefined,
+      description: formData.description.trim() || undefined,
+      description_bn: formData.description_bn.trim() || undefined,
+      category_id: formData.category_id || null,
+      base_price: parseFloat(formData.base_price || "0"),
+      image_url: formData.image_url.trim() || undefined,
+      is_available: formData.is_available,
+      sizes,
+      addons,
+    };
 
-    const user = JSON.parse(localStorage.getItem("user") || "{}");
-    if (!user.restaurant_id) {
-      setError("Restaurant ID not found");
+    // Zod Schema Validation
+    const parsed = menuItemSchema.safeParse(rawData);
+    if (!parsed.success) {
+      const errMap: Record<string, string> = {};
+      parsed.error.issues.forEach((issue) => {
+        const path = issue.path.join(".");
+        errMap[path] = issue.message;
+      });
+      setFieldErrors(errMap);
+      setError("Please fix the validation errors below.");
       return;
     }
 
     setLoading(true);
 
-    const menuItemData = {
-      restaurant_id: user.restaurant_id,
-      name: formData.name,
-      description: formData.description || undefined,
-      category: formData.category || undefined,
-      base_price: parseFloat(formData.base_price),
-      image_url: formData.image_url || undefined,
-      is_available: formData.is_available,
-      sizes: formData.sizes.length > 0 ? formData.sizes : undefined,
-      addons: formData.addons.length > 0 ? formData.addons : undefined,
-    };
+    try {
+      const payload: Partial<MenuItem> = {
+        ...parsed.data,
+        restaurant_id: restaurantId,
+      };
 
-    let success = false;
-    if (mode === "add") {
-      success = await createMenuItem(menuItemData);
-    } else if (item) {
-      success = await updateMenuItem(item.id, menuItemData);
-    }
+      if (mode === "add") {
+        const res = await createMenuItem(payload);
+        if (!res.success) throw new Error(res.error || "Failed to add menu item");
+      } else if (item) {
+        const res = await updateMenuItem(item.id, payload);
+        if (!res.success) throw new Error(res.error || "Failed to update menu item");
+      }
 
-    setLoading(false);
-
-    if (success) {
       onClose();
-    } else {
-      setError(`Failed to ${mode} menu item`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Error saving menu item";
+      setError(message);
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const addSize = () => {
-    if (newSize.name && newSize.price) {
-      setFormData({
-        ...formData,
-        sizes: [
-          ...formData.sizes,
-          { name: newSize.name, price: parseFloat(newSize.price) },
-        ],
-      });
-      setNewSize({ name: "", price: "" });
-    }
-  };
-
-  const removeSize = (index: number) => {
-    setFormData({
-      ...formData,
-      sizes: formData.sizes.filter((_, i) => i !== index),
-    });
-  };
-
-  const addAddon = () => {
-    if (newAddon.name && newAddon.price) {
-      setFormData({
-        ...formData,
-        addons: [
-          ...formData.addons,
-          { name: newAddon.name, price: parseFloat(newAddon.price) },
-        ],
-      });
-      setNewAddon({ name: "", price: "" });
-    }
-  };
-
-  const removeAddon = (index: number) => {
-    setFormData({
-      ...formData,
-      addons: formData.addons.filter((_, i) => i !== index),
-    });
   };
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={mode === "add" ? "Add Menu Item" : "Edit Menu Item"}
+      title={mode === "add" ? "Add Menu Item (মেনু আইটেম যোগ করুন)" : "Edit Menu Item (আইটেম সম্পাদনা)"}
       size="lg"
     >
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-5">
         {error && <Alert type="error" message={error} />}
 
-        <Input
-          label="Item Name"
-          value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          placeholder="e.g., Margherita Pizza"
-          required
-        />
-
-        <Textarea
-          label="Description (Optional)"
-          value={formData.description}
-          onChange={(e) =>
-            setFormData({ ...formData, description: e.target.value })
-          }
-          placeholder="Describe your item..."
-          rows={2}
-        />
-
-        <div className="grid sm:grid-cols-2 gap-4">
+        {/* Bilingual Names */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input
-            label="Category"
-            value={formData.category}
-            onChange={(e) =>
-              setFormData({ ...formData, category: e.target.value })
-            }
-            placeholder="e.g., Pizza, Burgers"
-          />
-
-          <Input
-            label="Base Price"
-            type="number"
-            step="0.01"
-            value={formData.base_price}
-            onChange={(e) =>
-              setFormData({ ...formData, base_price: e.target.value })
-            }
-            placeholder="0.00"
+            label="Item Name (English)*"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            placeholder="e.g. Kacchi Biryani"
             required
+            error={fieldErrors["name"]}
+          />
+          <Input
+            label="আইটেমের নাম (বাংলা)"
+            value={formData.name_bn}
+            onChange={(e) => setFormData({ ...formData, name_bn: e.target.value })}
+            placeholder="যেমন: কাচ্চি বিরিয়ানি"
+            error={fieldErrors["name_bn"]}
           />
         </div>
 
+        {/* Category & Base Price */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Select
+            label="Category"
+            value={formData.category_id}
+            onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
+            options={categories.map((c) => ({
+              value: c.id,
+              label: `${c.name} ${c.name_bn ? `(${c.name_bn})` : ""}`,
+            }))}
+          />
+          <Input
+            label="Base Price (মূল মূল্য ৳)*"
+            type="number"
+            step="0.01"
+            value={formData.base_price}
+            onChange={(e) => setFormData({ ...formData, base_price: e.target.value })}
+            placeholder="0.00"
+            required
+            error={fieldErrors["base_price"]}
+          />
+        </div>
+
+        {/* Bilingual Descriptions */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Textarea
+            label="Description (English)"
+            value={formData.description}
+            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+            placeholder="Ingredients, taste, spices..."
+            rows={2}
+          />
+          <Textarea
+            label="বিবরণ (বাংলা)"
+            value={formData.description_bn}
+            onChange={(e) => setFormData({ ...formData, description_bn: e.target.value })}
+            placeholder="আইটেমের বিবরণ..."
+            rows={2}
+          />
+        </div>
+
+        {/* Image URL */}
         <Input
-          label="Image URL (Optional)"
+          label="Image URL"
           value={formData.image_url}
-          onChange={(e) =>
-            setFormData({ ...formData, image_url: e.target.value })
-          }
-          placeholder="https://example.com/image.jpg"
+          onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+          placeholder="https://images.unsplash.com/..."
+          error={fieldErrors["image_url"]}
         />
 
-        {/* Sizes */}
-        <div>
-          <label className="label mb-3">Sizes (Optional)</label>
+        {/* Size Variants Builder */}
+        <div className="border border-border rounded-lg p-4 bg-bg-subtle/50">
+          <label className="text-sm font-bold text-text block mb-2">
+            Size Variants (সাইজ অপশন)
+          </label>
           <div className="space-y-2 mb-3">
-            {formData.sizes.map((size, index) => (
+            {sizes.map((s, idx) => (
               <div
-                key={index}
-                className="flex items-center justify-between p-3 bg-bg-subtle rounded-lg"
+                key={idx}
+                className="flex items-center justify-between bg-white p-2.5 rounded border border-border text-sm"
               >
-                <span className="text-text">
-                  {size.name} - {formatCurrency(size.price)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeSize(index)}
-                  className="text-error hover:bg-error/10 p-1 rounded"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div>
+                  <span className="font-semibold text-text">{s.name}</span>
+                  {s.name_bn && <span className="text-accent text-xs ml-2">({s.name_bn})</span>}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-bold text-text">৳{s.price}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSize(idx)}
+                    className="text-error hover:opacity-80 text-xs font-semibold"
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
             ))}
           </div>
-          <div className="flex gap-2">
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
-              placeholder="Size name"
+              placeholder="Size (e.g. Regular)"
               value={newSize.name}
               onChange={(e) => setNewSize({ ...newSize, name: e.target.value })}
             />
             <Input
-              placeholder="Price"
-              type="number"
-              step="0.01"
-              value={newSize.price}
-              onChange={(e) =>
-                setNewSize({ ...newSize, price: e.target.value })
-              }
+              placeholder="সাইজ (যেমন: হাফ)"
+              value={newSize.name_bn}
+              onChange={(e) => setNewSize({ ...newSize, name_bn: e.target.value })}
             />
-            <Button type="button" onClick={addSize} variant="outline">
-              Add
-            </Button>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                placeholder="Price (৳)"
+                value={newSize.price}
+                onChange={(e) => setNewSize({ ...newSize, price: e.target.value })}
+              />
+              <Button type="button" variant="outline" size="sm" onClick={handleAddSize}>
+                Add
+              </Button>
+            </div>
           </div>
         </div>
 
-        {/* Add-ons */}
-        <div>
-          <label className="label mb-3">Add-ons (Optional)</label>
+        {/* Add-ons Builder */}
+        <div className="border border-border rounded-lg p-4 bg-bg-subtle/50">
+          <label className="text-sm font-bold text-text block mb-2">
+            Add-ons (অতিরিক্ত টপিংস ও আইটেম)
+          </label>
           <div className="space-y-2 mb-3">
-            {formData.addons.map((addon, index) => (
+            {addons.map((a, idx) => (
               <div
-                key={index}
-                className="flex items-center justify-between p-3 bg-bg-subtle rounded-lg"
+                key={idx}
+                className="flex items-center justify-between bg-white p-2.5 rounded border border-border text-sm"
               >
-                <span className="text-text">
-                  {addon.name} - +{formatCurrency(addon.price)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeAddon(index)}
-                  className="text-error hover:bg-error/10 p-1 rounded"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div>
+                  <span className="font-semibold text-text">{a.name}</span>
+                  {a.name_bn && <span className="text-accent text-xs ml-2">({a.name_bn})</span>}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-bold text-text">+৳{a.price}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveAddon(idx)}
+                    className="text-error hover:opacity-80 text-xs font-semibold"
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
             ))}
           </div>
-          <div className="flex gap-2">
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
-              placeholder="Add-on name"
+              placeholder="Add-on (e.g. Cheese)"
               value={newAddon.name}
-              onChange={(e) =>
-                setNewAddon({ ...newAddon, name: e.target.value })
-              }
+              onChange={(e) => setNewAddon({ ...newAddon, name: e.target.value })}
             />
             <Input
-              placeholder="Price"
-              type="number"
-              step="0.01"
-              value={newAddon.price}
-              onChange={(e) =>
-                setNewAddon({ ...newAddon, price: e.target.value })
-              }
+              placeholder="টপিং (যেমন: বোরহানি)"
+              value={newAddon.name_bn}
+              onChange={(e) => setNewAddon({ ...newAddon, name_bn: e.target.value })}
             />
-            <Button type="button" onClick={addAddon} variant="outline">
-              Add
-            </Button>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                placeholder="Price (৳)"
+                value={newAddon.price}
+                onChange={(e) => setNewAddon({ ...newAddon, price: e.target.value })}
+              />
+              <Button type="button" variant="outline" size="sm" onClick={handleAddAddon}>
+                Add
+              </Button>
+            </div>
           </div>
         </div>
 
-        {/* Availability */}
-        <label className="flex items-center space-x-2 cursor-pointer">
+        {/* Availability Switch */}
+        <div className="flex items-center justify-between p-3 bg-bg-subtle rounded-lg">
+          <div>
+            <p className="font-semibold text-sm text-text">Available for Orders</p>
+            <p className="text-xs text-text-secondary">Shows to customers immediately</p>
+          </div>
           <input
             type="checkbox"
             checked={formData.is_available}
-            onChange={(e) =>
-              setFormData({ ...formData, is_available: e.target.checked })
-            }
-            className="rounded border-border"
+            onChange={(e) => setFormData({ ...formData, is_available: e.target.checked })}
+            className="w-5 h-5 rounded text-accent cursor-pointer"
           />
-          <span className="text-text">Available for ordering</span>
-        </label>
+        </div>
 
-        <div className="flex gap-3">
-          <Button type="button" variant="outline" onClick={onClose} fullWidth>
+        <div className="flex gap-3 justify-end pt-3">
+          <Button type="button" variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={loading} fullWidth>
-            {mode === "add" ? "Add Item" : "Save Changes"}
+          <Button type="submit" loading={loading}>
+            {mode === "add" ? "Save Menu Item" : "Update Menu Item"}
           </Button>
         </div>
       </form>
@@ -610,49 +704,165 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
   );
 };
 
-// Delete Modal
-interface DeleteModalProps {
+// ============================================================================
+// Categories Management Modal
+// ============================================================================
+interface CategoriesModalProps {
   isOpen: boolean;
-  item: MenuItem | null;
+  categories: MenuCategory[];
+  restaurantId: string;
   onClose: () => void;
 }
 
-const DeleteModal: React.FC<DeleteModalProps> = ({ isOpen, item, onClose }) => {
+const CategoriesModal: React.FC<CategoriesModalProps> = ({
+  isOpen,
+  categories,
+  restaurantId,
+  onClose,
+}) => {
+  const [name, setName] = useState("");
+  const [nameBn, setNameBn] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleDelete = async () => {
-    if (!item) return;
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    const parsed = menuCategorySchema.safeParse({
+      name: name.trim(),
+      name_bn: nameBn.trim() || undefined,
+      display_order: categories.length + 1,
+    });
+
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message || "Invalid category name");
+      return;
+    }
 
     setLoading(true);
-    const success = await deleteMenuItem(item.id);
+    const res = await createCategory({
+      restaurant_id: restaurantId,
+      name: parsed.data.name,
+      name_bn: parsed.data.name_bn,
+      display_order: parsed.data.display_order,
+      is_active: true,
+    });
     setLoading(false);
 
-    if (success) {
-      onClose();
+    if (res.success) {
+      setName("");
+      setNameBn("");
+    } else {
+      setError(res.error || "Failed to create category");
     }
   };
 
-  if (!item) return null;
+  const handleDeleteCategory = async (id: string) => {
+    if (confirm("Are you sure you want to remove this category?")) {
+      await deleteCategory(id);
+    }
+  };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Delete Menu Item" size="md">
-      <div className="space-y-4">
-        <Alert
-          type="warning"
-          message={`Are you sure you want to delete "${item.name}"? This action cannot be undone.`}
-        />
+    <Modal isOpen={isOpen} onClose={onClose} title="Manage Categories (ক্যাটাগরি সমূহ)" size="md">
+      <div className="space-y-5">
+        {error && <Alert type="error" message={error} />}
 
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={onClose} fullWidth>
+        {/* Existing Categories List */}
+        <div className="space-y-2 max-h-56 overflow-y-auto">
+          {categories.map((c) => (
+            <div
+              key={c.id}
+              className="flex items-center justify-between p-3 bg-white rounded-lg border border-border"
+            >
+              <div>
+                <p className="font-semibold text-text text-sm">{c.name}</p>
+                {c.name_bn && <p className="text-xs text-accent font-medium">{c.name_bn}</p>}
+              </div>
+              <button
+                type="button"
+                onClick={() => handleDeleteCategory(c.id)}
+                className="text-error hover:opacity-80 p-1 text-xs"
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+          {categories.length === 0 && (
+            <p className="text-center text-text-secondary text-sm py-4">
+              No categories added yet.
+            </p>
+          )}
+        </div>
+
+        {/* Add Category Form */}
+        <form onSubmit={handleCreateCategory} className="border-t border-border pt-4 space-y-3">
+          <h4 className="font-bold text-sm text-text">Add New Category</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <Input
+              placeholder="English (e.g. Platters)"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+            <Input
+              placeholder="বাংলা (যেমন: প্ল্যাটার)"
+              value={nameBn}
+              onChange={(e) => setNameBn(e.target.value)}
+            />
+          </div>
+          <Button type="submit" loading={loading} fullWidth size="sm">
+            Add Category
+          </Button>
+        </form>
+      </div>
+    </Modal>
+  );
+};
+
+// ============================================================================
+// Soft Delete Confirmation Modal
+// ============================================================================
+interface DeleteConfirmModalProps {
+  isOpen: boolean;
+  item: MenuItem;
+  onClose: () => void;
+}
+
+const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
+  isOpen,
+  item,
+  onClose,
+}) => {
+  const [loading, setLoading] = useState(false);
+
+  const handleConfirmDelete = async () => {
+    setLoading(true);
+    await deleteMenuItem(item.id);
+    setLoading(false);
+    onClose();
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Delete Menu Item" size="sm">
+      <div className="space-y-4">
+        <p className="text-sm text-text-secondary">
+          Are you sure you want to remove <strong>{item.name}</strong>?
+        </p>
+        <p className="text-xs text-text-secondary bg-bg-subtle p-3 rounded">
+          ℹ️ This item will be safely soft-deleted from your menu. Past customer order receipts will continue to display this item name.
+        </p>
+        <div className="flex gap-3 justify-end pt-2">
+          <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            variant="danger"
-            onClick={handleDelete}
+            className="bg-error hover:bg-error/90 text-white"
+            onClick={handleConfirmDelete}
             loading={loading}
-            fullWidth
           >
-            Delete Item
+            Soft Delete
           </Button>
         </div>
       </div>

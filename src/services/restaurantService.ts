@@ -1,5 +1,5 @@
 import { supabase } from "../config/supabase";
-import type { Order, MenuItem } from "../config/supabase";
+import type { Order, MenuItem, MenuCategory } from "../config/supabase";
 
 /**
  * Restaurant API Service
@@ -53,7 +53,7 @@ export const updateOrderStatus = async (
     transactionId?: string;
   }
 ) => {
-  const updateData: any = { status };
+  const updateData: Partial<Order> = { status: status as Order["status"] };
 
   if (paymentData) {
     updateData.payment_method = paymentData.paymentMethod;
@@ -68,7 +68,82 @@ export const updateOrderStatus = async (
   return !error;
 };
 
-// Subscribe to menu items with real-time updates
+// Subscribe to restaurant categories with real-time updates
+export const subscribeToCategories = (
+  restaurantId: string,
+  callback: (categories: MenuCategory[]) => void
+) => {
+  const fetchCategories = async () => {
+    const { data, error } = await supabase
+      .from("menu_categories")
+      .select("*")
+      .eq("restaurant_id", restaurantId)
+      .is("deleted_at", null)
+      .order("display_order", { ascending: true });
+
+    if (!error && data) {
+      callback(data as MenuCategory[]);
+    }
+  };
+
+  fetchCategories();
+
+  const subscription = supabase
+    .channel(`restaurant-categories-${restaurantId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "menu_categories",
+        filter: `restaurant_id=eq.${restaurantId}`,
+      },
+      () => {
+        fetchCategories();
+      }
+    )
+    .subscribe();
+
+  return subscription;
+};
+
+// Create category
+export const createCategory = async (category: Partial<MenuCategory>) => {
+  const { data, error } = await supabase
+    .from("menu_categories")
+    .insert([category])
+    .select()
+    .single();
+
+  return { success: !error, data, error: error?.message };
+};
+
+// Update category
+export const updateCategory = async (
+  categoryId: string,
+  updates: Partial<MenuCategory>
+) => {
+  const { data, error } = await supabase
+    .from("menu_categories")
+    .update(updates)
+    .eq("id", categoryId)
+    .select()
+    .single();
+
+  return { success: !error, data, error: error?.message };
+};
+
+// Soft delete category
+export const deleteCategory = async (categoryId: string) => {
+  const { error } = await supabase
+    .from("menu_categories")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", categoryId);
+
+  return !error;
+};
+
+// Subscribe to menu items with real-time updates (filters out soft-deleted items)
 export const subscribeToMenuItems = (
   restaurantId: string,
   callback: (items: MenuItem[]) => void
@@ -78,10 +153,11 @@ export const subscribeToMenuItems = (
       .from("menu_items")
       .select("*")
       .eq("restaurant_id", restaurantId)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
     if (!error && data) {
-      callback(data);
+      callback(data as MenuItem[]);
     }
   };
 
@@ -108,13 +184,13 @@ export const subscribeToMenuItems = (
 
 // Create menu item
 export const createMenuItem = async (item: Partial<MenuItem>) => {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("menu_items")
     .insert([item])
     .select()
     .single();
 
-  return !error;
+  return { success: !error, data, error: error?.message };
 };
 
 // Update menu item
@@ -122,12 +198,14 @@ export const updateMenuItem = async (
   itemId: string,
   updates: Partial<MenuItem>
 ) => {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("menu_items")
     .update(updates)
-    .eq("id", itemId);
+    .eq("id", itemId)
+    .select()
+    .single();
 
-  return !error;
+  return { success: !error, data, error: error?.message };
 };
 
 // Toggle menu item availability (triggers real-time update for customers)
@@ -143,9 +221,12 @@ export const toggleMenuItemAvailability = async (
   return !error;
 };
 
-// Delete menu item
+// Soft delete menu item
 export const deleteMenuItem = async (itemId: string) => {
-  const { error } = await supabase.from("menu_items").delete().eq("id", itemId);
+  const { error } = await supabase
+    .from("menu_items")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", itemId);
 
   return !error;
 };

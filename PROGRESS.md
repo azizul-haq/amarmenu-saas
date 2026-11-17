@@ -17,8 +17,9 @@
 | **4** | **Auth & Route Protection** | **Done** | Implemented official Supabase Auth (`AuthProvider`, `useAuth`, `ProtectedRoute`). Protected `/admin/*` (super_admin only) and `/restaurant/*` (staff only) with redirect to login. Migrated Admin & Restaurant Login to Supabase Auth. Uninstalled `crypto-js` and `@types/crypto-js`. Replaced client hash with native Web Crypto SHA-256 fallback. Seeded and verified `admin@foodorder.com` and `testowner@amarmenu.com`. |
 | **5** | **Tenant RLS + Isolation Tests** | **Done** | Implemented strict multi-tenant RLS policies on all tables (`orders`, `menu_items`, `menu_categories`, `subscriptions`, `restaurant_staff`, `restaurants`). Created `current_restaurant_id()` and `is_super_admin()` helper functions. Revoked anon execute on admin procedures and dropped legacy RPC logins. Added 10 automated RLS integration tests in `src/tests/rls.test.ts` verifying Restaurant A cannot view/edit Restaurant B's data, anon cannot access orders, and super admin has full visibility (30/30 total tests pass). |
 | **6** | **Super Admin Approval & Onboarding** | **Done** | Implemented server-side registration approval via Edge Function (`approve-registration`) and secure RPC procedure (`approve_registration_request`). Eliminated client-side temporary passwords and plaintext credential modals. Generated secure `/set-password` invite links with 1-click WhatsApp/SMS/Email copy. Built `SetPasswordPage.tsx`. Eliminated 4 more `any` types (down to 12). All 32 automated tests pass. |
+| **7** | **Bilingual Menu & Soft Delete** | **Done** | Bilingual support (English + বাংলা) for categories and menu items (`name_bn`, `description_bn`). Dynamic size variants (with custom pricing) and add-on options (e.g. Borhani, Extra Cheese). Runtime validation with Zod schemas (`menuItemSchema`, `menuCategorySchema`, `sizeVariantSchema`, `addonVariantSchema`). Non-destructive soft delete (`deleted_at`) preserving historical order integrity. Full tenant RLS isolation and 8 automated tests in `src/tests/menu.test.ts` (40/40 total tests pass). Eliminated 1 more `any` type (down to 11). |
 
-### Current Chunk: Ready for Chunk 7
+### Current Chunk: Ready for Chunk 8
 
 ---
 
@@ -31,15 +32,16 @@
 * **ADR-006 (Supabase Auth & Session Handling)**: Authentication is driven via Supabase GoTrue Auth with JWT tokens. Role resolution is evaluated from `platform_admins` and `restaurant_staff` tables in `AuthContext`. Route protection is enforced via `ProtectedRoute`.
 * **ADR-007 (Tenant Row Level Security)**: All database queries must run under Postgres RLS. Public anon clients can only view active menus and submit customer orders. Authenticated restaurant staff are strictly constrained to `restaurant_id = current_restaurant_id()`. Super admins are granted platform-wide oversight via `is_super_admin()`.
 * **ADR-008 (Password-Free Owner Onboarding)**: Restaurant owners never receive plaintext or temporary passwords. On approval, the platform issues an invite / set-password link (`/set-password`) via Edge Function / GoTrue Admin API. The owner sets their permanent password upon first access.
+* **ADR-009 (Bilingual Menu & Soft Delete Integrity)**: Menu categories and items store both English and Bengali text (`name_bn`, `description_bn`). To protect customer order historical integrity, item deletion uses soft-deletion (`deleted_at = NOW()`). Postgres RLS policies allow staff full management while preventing soft-deleted items from leaking to storefront customer queries. Variants (sizes and add-ons) are modeled as validated JSONB structures with individual pricing.
 
 ---
 
 ## Inventory of `any` Types (To Be Eliminated)
 
-Remaining occurrences: **12** (originally 26, eliminated 14)
+Remaining occurrences: **11** (originally 26, eliminated 15)
 
 | # | File Path | Line | Context Snippet | Planned Elimination Chunk | Status |
-| :-: | :--- | :-: | :--- | :--- | :---: |
+| :-: | :--- | :-: | :--- | :--- | :--- | :---: |
 | 1 | `src/pages/admin/Dashboard.tsx` | 25 | `const [admin, setAdmin] = useState<any>(null);` | Chunk 4: Auth Refactor | **Eliminated** |
 | 2 | `src/pages/admin/LoginPage.tsx` | 71 | `} catch (err: any) {` | Chunk 4: Auth Refactor | **Eliminated** |
 | 3 | `src/pages/admin/PendingRequests.tsx` | 41 | `const [credentials, setCredentials] = useState<any>(null);` | Chunk 6: Admin Onboarding | **Eliminated** |
@@ -63,7 +65,7 @@ Remaining occurrences: **12** (originally 26, eliminated 14)
 | 21 | `src/pages/restaurant/RestaurantHome.tsx` | 8 | `const [stats, setStats] = useState<any>(null);` | Dashboard Stats Types | **Eliminated** |
 | 22 | `src/pages/restaurant/RestaurantHome.tsx` | 132 | `{stats.recentOrders.slice(0, 5).map((order: any) => (` | Dashboard Stats Types | Pending |
 | 23 | `src/services/adminService.ts` | 119 | `} catch (error: any) {` | Chunk 6: Service Layer Types | **Eliminated** |
-| 24 | `src/services/restaurantService.ts` | 56 | `const updateData: any = { status };` | Service Layer Types | Pending |
+| 24 | `src/services/restaurantService.ts` | 56 | `const updateData: any = { status };` | Service Layer Types | **Eliminated** |
 | 25 | `src/utils/helpers.ts` | 50 | `export const calculateOrderTotals = (items: any[]) => {` | Helper Functions Types | Pending |
 | 26 | `src/utils/helpers.ts` | 120 | `export const debounce = <T extends (...args: any[]) => any>(` | Helper Functions Types | Pending |
 
@@ -76,4 +78,4 @@ The following issues were identified during code inspection:
 3. ~~**Missing Route Guards**~~: **Resolved in Chunk 4**. `ProtectedRoute` guards `/admin/*` (super_admin only) and `/restaurant/*` (staff roles only). Direct browser URL entry is protected.
 4. ~~**Indian Currency & Phone Format Defaults**~~: **Resolved in Chunk 2**. BDT `৳` and BD phone regex implemented.
 5. ~~**Blanket RLS Policies**~~: **Resolved in Chunk 5**. Strict tenant-scoped RLS policies deployed across all database tables with automated multi-tenant verification tests.
-6. **No Form Validation Schemas**: Registration, login, and item creation lack runtime validation with Zod.
+6. ~~**Missing Menu Validation & Non-Bilingual Menus**~~: **Resolved in Chunk 7**. Strict Zod schemas enforce required fields, positive prices, and variant structures. Full English + Bengali support and non-destructive soft-delete deployed.

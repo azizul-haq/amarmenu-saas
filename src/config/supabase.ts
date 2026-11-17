@@ -124,18 +124,39 @@ export interface User {
   created_at: string;
 }
 
-export interface MenuItem {
+export interface MenuCategory {
   id: string;
   restaurant_id: string;
   name: string;
-  description?: string;
-  base_price: number;
-  category?: string;
-  image_url?: string;
-  is_available: boolean;
-  sizes?: { name: string; price: number }[];
-  addons?: { name: string; price: number }[];
+  name_bn?: string | null;
+  display_order: number;
+  is_active: boolean;
+  deleted_at?: string | null;
   created_at: string;
+  updated_at?: string;
+}
+
+export interface MenuItem {
+  id: string;
+  restaurant_id: string;
+  category_id?: string | null;
+  category?: string;
+  name: string;
+  name_bn?: string | null;
+  description?: string | null;
+  description_bn?: string | null;
+  base_price: number;
+  image_url?: string | null;
+  is_available: boolean;
+  is_featured?: boolean;
+  sizes?: { name: string; name_bn?: string; price: number }[];
+  addons?: { name: string; name_bn?: string; price: number }[];
+  tags?: string[];
+  prep_time_minutes?: number | null;
+  display_order?: number;
+  deleted_at?: string | null;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface Order {

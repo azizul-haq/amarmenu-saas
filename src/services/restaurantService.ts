@@ -1,5 +1,5 @@
 import { supabase } from "../config/supabase";
-import type { Order, MenuItem, MenuCategory, RestaurantTable } from "../config/supabase";
+import type { Order, OrderItem, MenuItem, MenuCategory, RestaurantTable } from "../config/supabase";
 
 /**
  * Restaurant API Service
@@ -449,4 +449,50 @@ export const verifyTableQRToken = async (
     error?: string;
   };
 };
+
+// Customer live order status tracking
+export const getCustomerOrder = async (
+  orderId: string
+): Promise<{
+  found: boolean;
+  order?: Order & { items: OrderItem[] };
+  restaurant?: {
+    name: string;
+    name_bn?: string;
+    slug: string;
+    phone?: string;
+    address?: string;
+    logo_url?: string;
+    vat_bin_no?: string;
+    currency: string;
+    currency_symbol: string;
+  };
+  error?: string;
+}> => {
+  const { data, error } = await supabase.rpc("get_customer_order", {
+    p_order_id: orderId,
+  });
+
+  if (error || !data) {
+    return { found: false, error: error?.message || "Failed to load order status" };
+  }
+
+  return data as {
+    found: boolean;
+    order?: Order & { items: OrderItem[] };
+    restaurant?: {
+      name: string;
+      name_bn?: string;
+      slug: string;
+      phone?: string;
+      address?: string;
+      logo_url?: string;
+      vat_bin_no?: string;
+      currency: string;
+      currency_symbol: string;
+    };
+    error?: string;
+  };
+};
+
 

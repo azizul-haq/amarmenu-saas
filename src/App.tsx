@@ -17,6 +17,7 @@ import AdminDashboard from "./pages/admin/Dashboard";
 
 // Customer ordering
 import CustomerMenu from "./pages/customer/CustomerMenu";
+import OrderStatusPage from "./pages/customer/OrderStatusPage";
 
 // 404
 import NotFoundPage from "./pages/NotFoundPage";
@@ -58,6 +59,7 @@ function App() {
 
           {/* Customer Ordering Route */}
           <Route path="/menu/:slug" element={<CustomerMenu />} />
+          <Route path="/order/:orderId" element={<OrderStatusPage />} />
 
           {/* 404 */}
           <Route path="/404" element={<NotFoundPage />} />

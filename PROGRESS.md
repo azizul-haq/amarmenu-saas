@@ -20,8 +20,9 @@
 | **7** | **Bilingual Menu & Soft Delete** | **Done** | Bilingual support (English + বাংলা) for categories and menu items (`name_bn`, `description_bn`). Dynamic size variants (with custom pricing) and add-on options (e.g. Borhani, Extra Cheese). Runtime validation with Zod schemas (`menuItemSchema`, `menuCategorySchema`, `sizeVariantSchema`, `addonVariantSchema`). Non-destructive soft delete (`deleted_at`) preserving historical order integrity. Full tenant RLS isolation and 8 automated tests in `src/tests/menu.test.ts` (40/40 total tests pass). Eliminated 1 more `any` type (down to 11). |
 | **8** | **Tables Management & QR Ordering** | **Done** | Table management schema (`restaurant_tables`, `qr_token`), unique unguessable 32-char tokens, token rotation via `regenerate_table_qr_token`, tenant-scoped RLS. Branded table tent card modal and downloadable PDF generation via `jsPDF` + `html2canvas` (single table + bulk all tables). Secure customer QR verification (`verify_table_qr_token`): verified table locks checkout table number, invalid or manipulated QR token displays prominent alert. Added 9 automated tests in `src/tests/tables.test.ts` (49/49 total tests pass). Eliminated 4 more `any` types in `CustomerMenu.tsx` (down to 7). |
 | **9** | **Atomic place_order & Anti-Tampering** | **Done** | Atomic `place_order` stored procedure: queries DB truths for base price, sizes, and addons; strictly rejects client price tampering and subtotal/total forgery; computes restaurant VAT (`default_vat_rate`); verifies dine-in table QR tokens; guarantees gap-free order numbers via `restaurant_order_sequences`; prevents duplicates via `idempotency_key`; enforces rate limiting (max 5 orders/5 min per phone). Added 7 automated tests in `src/tests/orderPlacement.test.ts` (56/56 total tests pass). |
+| **10** | **Customer Ordering UI & Status Tracking** | **Done** | Cart store with composite variant keys and `localStorage` persistence per restaurant. Bilingual customer menu (English + বাংলা) with live language toggle, category tabs, and real-time menu sync. Seamless item customization modal (sizes & addons calculation). Dine-in table QR lock integration. Zod-validated checkout (`customerCheckoutSchema`). Sanitized public order status RPC (`get_customer_order`) with live 4-step progress stepper (Order Placed → Preparing → Ready → Completed), live polling, and itemized receipt with NBR VAT details. Added 10 automated tests in `src/tests/customerOrdering.test.ts` (66/66 total tests pass). Eliminated 2 more `any` types (down to 5). |
 
-### Current Chunk: Ready for Chunk 10
+### Current Chunk: Chunk 10 Completed (Awaiting Next)
 
 ---
 
@@ -37,12 +38,13 @@
 * **ADR-009 (Bilingual Menu & Soft Delete Integrity)**: Menu categories and items store both English and Bengali text (`name_bn`, `description_bn`). To protect customer order historical integrity, item deletion uses soft-deletion (`deleted_at = NOW()`). Postgres RLS policies allow staff full management while preventing soft-deleted items from leaking to storefront customer queries. Variants (sizes and add-ons) are modeled as validated JSONB structures with individual pricing.
 * **ADR-010 (Cryptographic Table QR Token & Ordering Verification)**: Each dine-in table is assigned a unique, unguessable 32-character hexadecimal cryptographic token (`qr_token`). Scanning `/menu/:slug?table=<token>` validates both restaurant slug and table token atomically via `verify_table_qr_token`. On valid token detection, the table number is automatically locked for checkout to prevent table spoofing. Manipulated, expired, or soft-deleted table tokens are rejected with a clear customer error.
 * **ADR-011 (Server-Side Price Authority, Anti-Tampering, Idempotency & Sequences)**: Client-side prices and totals are never trusted for transaction persistence. The `place_order` procedure resolves base prices, size variants, and add-ons directly from database rows, calculating authoritative subtotals, restaurant NBR VAT (`default_vat_rate`), and totals. Any price deviation between client and server triggers an immediate exception (`Price tampering detected`). Network double-submissions are deduplicated via `idempotency_key`. Gap-free sequential numbers (`ORD-YYYYMMDD-XXXX`) are guaranteed through the atomic `restaurant_order_sequences` table. Spam is blocked via 5-minute rolling rate limits per phone number.
+* **ADR-012 (Sanitized Customer Order Tracking & Cart Persistence)**: Anonymous customers track their order status via the dedicated `get_customer_order(order_id)` RPC rather than granting broad anon SELECT on `orders`. Cart state is managed through `CartContext` keyed by `${itemId}_size:${size}_addons:${addons}` and persisted per restaurant slug in `localStorage`. Checkouts are validated using `customerCheckoutSchema` (Zod) enforcing BD phone and table rules. Post-order submission automatically clears the restaurant cart and routes customers to `/order/:orderId` featuring real-time 4-step status progression.
 
 ---
 
 ## Inventory of `any` Types (To Be Eliminated)
 
-Remaining occurrences: **7** (originally 26, eliminated 19)
+Remaining occurrences: **5** (originally 26, eliminated 21)
 
 | # | File Path | Line | Context Snippet | Planned Elimination Chunk | Status |
 | :-: | :--- | :-: | :--- | :--- | :--- | :---: |
@@ -63,14 +65,14 @@ Remaining occurrences: **7** (originally 26, eliminated 19)
 | 15 | `src/pages/restaurant/Dashboard.tsx` | 27 | `const [user, setUser] = useState<any>(null);` | Chunk 4: Auth Refactor | **Eliminated** |
 | 16 | `src/pages/restaurant/Dashboard.tsx` | 28 | `const [restaurant, setRestaurant] = useState<any>(null);` | Chunk 4: Auth Refactor | **Eliminated** |
 | 17 | `src/pages/restaurant/Orders.tsx` | 83 | `const variants: Record<string, any> = {` | Order Management Types | **Eliminated** |
-| 18 | `src/pages/restaurant/Orders.tsx` | 409 | `{order.items?.map((item: any, index: number) => (` | Order Management Types | Pending |
+| 18 | `src/pages/restaurant/Orders.tsx` | 409 | `{order.items?.map((item: any, index: number) => (` | Order Management Types | **Eliminated** |
 | 19 | `src/pages/restaurant/Reports.tsx` | 76 | `order.items?.forEach((item: any) => {` | Reports & Analytics Types | Pending |
 | 20 | `src/pages/restaurant/Reports.tsx` | 299 | `label={(entry: any) =>` | Reports & Analytics Types | Pending |
 | 21 | `src/pages/restaurant/RestaurantHome.tsx` | 8 | `const [stats, setStats] = useState<any>(null);` | Dashboard Stats Types | **Eliminated** |
 | 22 | `src/pages/restaurant/RestaurantHome.tsx` | 132 | `{stats.recentOrders.slice(0, 5).map((order: any) => (` | Dashboard Stats Types | Pending |
 | 23 | `src/services/adminService.ts` | 119 | `} catch (error: any) {` | Chunk 6: Service Layer Types | **Eliminated** |
 | 24 | `src/services/restaurantService.ts` | 56 | `const updateData: any = { status };` | Service Layer Types | **Eliminated** |
-| 25 | `src/utils/helpers.ts` | 50 | `export const calculateOrderTotals = (items: any[]) => {` | Helper Functions Types | Pending |
+| 25 | `src/utils/helpers.ts` | 50 | `export const calculateOrderTotals = (items: any[]) => {` | Helper Functions Types | **Eliminated** |
 | 26 | `src/utils/helpers.ts` | 120 | `export const debounce = <T extends (...args: any[]) => any>(` | Helper Functions Types | Pending |
 
 ---
@@ -85,3 +87,4 @@ The following issues were identified during code inspection:
 6. ~~**Missing Menu Validation & Non-Bilingual Menus**~~: **Resolved in Chunk 7**. Strict Zod schemas enforce required fields, positive prices, and variant structures. Full English + Bengali support and non-destructive soft-delete deployed.
 7. ~~**Insecure Table Manual Typing & Missing QR Tokens**~~: **Resolved in Chunk 8**. Dine-in tables assigned cryptographic tokens, verified atomically upon customer scan, and locked during checkout.
 8. ~~**Client-Trust Price Vulnerability & Duplicate Submissions**~~: **Resolved in Chunk 9**. Atomic `place_order` stored procedure with server price authority, anti-tampering rejection, idempotency key deduplication, rate limiting, and gap-free numbering.
+9. ~~**Unsanitized Public Order Access & Untracked Customer Experience**~~: **Resolved in Chunk 10**. Public `get_customer_order` RPC with live 4-step progress stepper, localStorage cart persistence, bilingual checkout with Zod validation, and automatic post-order redirect.

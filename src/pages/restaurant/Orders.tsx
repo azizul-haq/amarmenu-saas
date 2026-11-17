@@ -21,7 +21,7 @@ import {
   subscribeToOrders,
   updateOrderStatus,
 } from "../../services/restaurantService";
-import type { Order } from "../../config/supabase";
+import type { Order, OrderItem } from "../../config/supabase";
 import { formatDateTime, formatCurrency, playSound } from "../../utils/helpers";
 
 const Orders: React.FC = () => {
@@ -406,7 +406,7 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         <div>
           <h4 className="font-semibold text-text mb-3">Order Items</h4>
           <div className="space-y-3">
-            {order.items?.map((item: any, index: number) => (
+            {order.items?.map((item: OrderItem, index: number) => (
               <div
                 key={index}
                 className="flex items-start justify-between p-3 bg-bg-subtle rounded-lg"
@@ -415,19 +415,19 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   <p className="font-medium text-text">
                     {item.quantity}x {item.name}
                   </p>
-                  {item.size && (
+                  {item.selected_size && (
                     <p className="text-sm text-text-secondary">
-                      Size: {item.size}
+                      Size: {item.selected_size.name}
                     </p>
                   )}
-                  {item.addons && item.addons.length > 0 && (
+                  {item.selected_addons && item.selected_addons.length > 0 && (
                     <p className="text-sm text-text-secondary">
-                      Add-ons: {item.addons.join(", ")}
+                      Add-ons: {item.selected_addons.map((a) => a.name).join(", ")}
                     </p>
                   )}
                 </div>
                 <p className="font-semibold text-text">
-                  {formatCurrency(item.item_total || item.subtotal || 0)}
+                  {formatCurrency(item.item_total || 0)}
                 </p>
               </div>
             ))}

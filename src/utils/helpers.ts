@@ -48,7 +48,7 @@ export const generateTempPassword = (): string => {
  * Calculate order totals with configurable VAT rate
  */
 export const calculateOrderTotals = (
-  items: any[],
+  items: { item_total?: number; quantity?: number; base_price?: number }[],
   vatRate: number = APP_CONFIG.taxRate
 ) => {
   const subtotal = items.reduce((sum, item) => sum + (item.item_total || 0), 0);

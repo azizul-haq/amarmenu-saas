@@ -147,9 +147,16 @@ function parseAuditFile(filePath: string): AuditStats {
   };
 }
 
+function resolveAuditPath(fileName: string): string {
+  if (fs.existsSync(fileName)) return fileName;
+  const inDocs = path.join('docs', 'audits', fileName);
+  if (fs.existsSync(inDocs)) return inDocs;
+  return fileName;
+}
+
 export function runAuditCounts() {
-  const ownerStats = parseAuditFile('OWNER_AUDIT.md');
-  const adminStats = parseAuditFile('SUPER_ADMIN_AUDIT.md');
+  const ownerStats = parseAuditFile(resolveAuditPath('OWNER_AUDIT.md'));
+  const adminStats = parseAuditFile(resolveAuditPath('SUPER_ADMIN_AUDIT.md'));
 
   console.log('===============================================================');
   console.log(' AUDIT STATUS COUNTS REPORT (SECTION 1 FEATURE MATRICES ONLY)');

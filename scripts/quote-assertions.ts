@@ -75,5 +75,9 @@ function processAuditFile(filePath: string) {
   console.log(`Updated ${filePath}`);
 }
 
-processAuditFile('OWNER_AUDIT.md');
-processAuditFile('SUPER_ADMIN_AUDIT.md');
+import * as path from 'path';
+
+const resolvePath = (f: string) => fs.existsSync(f) ? f : path.join('docs', 'audits', f);
+
+processAuditFile(resolvePath('OWNER_AUDIT.md'));
+processAuditFile(resolvePath('SUPER_ADMIN_AUDIT.md'));

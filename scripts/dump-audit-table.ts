@@ -96,8 +96,12 @@ function parseSuperAdminAudit(filePath: string): Row[] {
   return results;
 }
 
-const ownerRows = parseOwnerAudit('OWNER_AUDIT.md');
-const saRows = parseSuperAdminAudit('SUPER_ADMIN_AUDIT.md');
+import * as path from 'path';
+
+const resolvePath = (f: string) => fs.existsSync(f) ? f : path.join('docs', 'audits', f);
+
+const ownerRows = parseOwnerAudit(resolvePath('OWNER_AUDIT.md'));
+const saRows = parseSuperAdminAudit(resolvePath('SUPER_ADMIN_AUDIT.md'));
 
 console.log(`OWNER UNCONFIRMED/VERIFIED rows: ${ownerRows.length}`);
 console.log(`SUPER ADMIN UNCONFIRMED/VERIFIED rows: ${saRows.length}`);

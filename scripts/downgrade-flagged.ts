@@ -45,6 +45,10 @@ function downgradeSaAudit(filePath: string) {
   fs.writeFileSync(filePath, newLines.join('\n'), 'utf8');
 }
 
-downgradeOwnerAudit('OWNER_AUDIT.md');
-downgradeSaAudit('SUPER_ADMIN_AUDIT.md');
+import * as path from 'path';
+
+const resolvePath = (f: string) => fs.existsSync(f) ? f : path.join('docs', 'audits', f);
+
+downgradeOwnerAudit(resolvePath('OWNER_AUDIT.md'));
+downgradeSaAudit(resolvePath('SUPER_ADMIN_AUDIT.md'));
 console.log('Downgrade complete.');

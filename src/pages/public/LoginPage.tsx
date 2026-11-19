@@ -5,7 +5,7 @@ import { Button, Input, Alert, Card } from "../../components/ui";
 import { APP_CONFIG } from "../../config/config";
 import { supabase } from "../../config/supabase";
 import { useAuth } from "../../context/AuthContext";
-import { isValidEmail } from "../../utils/helpers";
+import { isValidEmail, isValidPhone } from "../../utils/helpers";
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -26,8 +26,11 @@ const LoginPage: React.FC = () => {
       return;
     }
 
-    if (!isValidEmail(formData.email)) {
-      setError("Please enter a valid email address");
+    const isEmail = isValidEmail(formData.email);
+    const isPhone = isValidPhone(formData.email);
+
+    if (!isEmail && !isPhone) {
+      setError("Please enter a valid email address or 11-digit phone number");
       return;
     }
 
@@ -146,15 +149,15 @@ const LoginPage: React.FC = () => {
           {/* Login Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
-              label="Email Address"
+              label="Email or Phone Number"
               name="email"
-              type="email"
+              type="text"
               value={formData.email}
               onChange={handleChange}
-              placeholder="your@email.com"
+              placeholder="your@email.com or 017XXXXXXXX"
               icon={<Mail className="w-5 h-5" />}
               required
-              autoComplete="email"
+              autoComplete="username"
             />
 
             <Input

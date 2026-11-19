@@ -49,8 +49,8 @@ export interface Restaurant {
   service_charge_rate?: number;
   currency?: string;
   currency_symbol?: string;
-  subscription_plan: "free_trial" | "starter" | "pro" | "enterprise";
-  status: "active" | "blocked" | "trial";
+  subscription_plan: "free_trial" | "starter" | "pro" | "growth" | "enterprise";
+  status: "active" | "blocked" | "trial" | "suspended";
   is_active: boolean;
   internal_notes?: string;
   block_reason?: string;

@@ -11,23 +11,38 @@ import { Card, Button, Loading } from "../../components/ui";
 import { getRestaurantAuditLogs } from "../../services/auditService";
 import type { AuditLog } from "../../config/supabase";
 import { formatDateTime } from "../../utils/helpers";
+import { useAuth } from "../../context/AuthContext";
 
 export const AuditLogsPage: React.FC = () => {
+  const { restaurant, restaurantId: authRestaurantId } = useAuth();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [filterAction, setFilterAction] = useState<string>("all");
-  const [restaurantId, setRestaurantId] = useState<string>("");
+  const [restaurantId, setRestaurantId] = useState<string>(authRestaurantId || restaurant?.id || "");
 
   useEffect(() => {
-    const currentRestaurant = localStorage.getItem("current_restaurant");
-    if (!currentRestaurant) {
+    let targetRestaurantId = authRestaurantId || restaurant?.id || "";
+
+    if (!targetRestaurantId) {
+      const currentRestaurant = localStorage.getItem("current_restaurant");
+      if (currentRestaurant) {
+        try {
+          const parsed = JSON.parse(currentRestaurant);
+          targetRestaurantId = parsed.id || "";
+        } catch {
+          // fallback
+        }
+      }
+    }
+
+    if (!targetRestaurantId) {
       setLoading(false);
       return;
     }
-    const { id } = JSON.parse(currentRestaurant);
-    setRestaurantId(id);
-    loadLogs(id);
-  }, []);
+
+    setRestaurantId(targetRestaurantId);
+    loadLogs(targetRestaurantId);
+  }, [authRestaurantId, restaurant?.id]);
 
   const loadLogs = async (rId: string) => {
     setLoading(true);

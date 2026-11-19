@@ -60,13 +60,52 @@ export const subscribeToKitchenOrders = (
   const fetchKitchenOrders = async () => {
     const { data, error } = await supabase
       .from("orders")
-      .select("*")
+      .select(`
+        id,
+        restaurant_id,
+        order_number,
+        order_type,
+        table_number,
+        status,
+        customer_notes,
+        created_at,
+        updated_at,
+        accepted_at,
+        preparing_at,
+        ready_at,
+        kot_printed_at,
+        kot_print_count,
+        items
+      `)
       .eq("restaurant_id", restaurantId)
       .in("status", ["accepted", "preparing", "ready"])
       .order("created_at", { ascending: true });
 
     if (!error && data) {
-      callback(data);
+      // Strip financial properties from order and items
+      const sanitized = data.map((order: any) => ({
+        ...order,
+        subtotal: undefined,
+        tax: undefined,
+        discount: undefined,
+        total: undefined,
+        tendered_amount: undefined,
+        change_amount: undefined,
+        payment_method: undefined,
+        payment_status: undefined,
+        payment_transaction_id: undefined,
+        invoice_number: undefined,
+        items: Array.isArray(order.items)
+          ? order.items.map((i: any) => ({
+              name: i.name || i.item_name,
+              quantity: i.quantity,
+              special_instructions: i.special_instructions || i.notes,
+              size_name: i.size_name,
+              addons: i.addons,
+            }))
+          : order.items,
+      }));
+      callback(sanitized as Order[]);
     }
   };
 

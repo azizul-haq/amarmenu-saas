@@ -2,9 +2,10 @@ import pg from "pg";
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL } from "../config/config";
 
-const DB_URL =
-  process.env.SUPABASE_DB_URL ||
-  "postgresql://postgres.djpyapgqqbdgdbqktabx:NaVvC2VBQiO8wMVW@aws-0-ap-south-1.pooler.supabase.com:6543/postgres";
+const DB_URL = process.env.SUPABASE_DB_URL;
+if (!DB_URL) {
+  throw new Error("[SECURITY FATAL] Missing SUPABASE_DB_URL in environment.");
+}
 
 // Reuse pool across test calls for sub-100ms query performance
 const dbPool = new pg.Pool({
@@ -124,10 +125,14 @@ export function getServiceRoleClient(): ServiceRoleClientInterface {
       const client = await dbPool.connect();
       try {
         await client.query("SET ROLE service_role;");
+        await client.query("SELECT set_config('role', 'service_role', false);");
         const res = await client.query(sql, params);
         return res.rows as R[];
       } finally {
-        await client.query("RESET ROLE;");
+        try {
+          await client.query("SELECT set_config('role', 'none', false);");
+          await client.query("RESET ROLE;");
+        } catch {}
         client.release();
       }
     },

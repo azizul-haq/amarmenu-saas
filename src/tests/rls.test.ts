@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Multi-Tenant Row Level Security (RLS) Isolation", () => {
   let anonClient: SupabaseClient;
@@ -25,13 +26,14 @@ describe("Multi-Tenant Row Level Security (RLS) Isolation", () => {
     });
     if (authA.error) throw new Error(`Auth A failed: ${authA.error.message}`);
 
-    // 3. Admin Client (Super Admin: admin@foodorder.com)
+    // 3. Admin Client (Super Admin)
+    const creds = getTestCredentials();
     adminClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const authAdmin = await adminClient.auth.signInWithPassword({
-      email: "admin@foodorder.com",
-      password: "admin123",
+      email: creds.super_admin.email,
+      password: creds.super_admin.password,
     });
     if (authAdmin.error) throw new Error(`Auth Admin failed: ${authAdmin.error.message}`);
   });
@@ -56,11 +58,10 @@ describe("Multi-Tenant Row Level Security (RLS) Isolation", () => {
     });
 
     it("prevents anon from reading private restaurant orders", async () => {
-      const { data: orders, error } = await anonClient.from("orders").select("*");
+      const { data: _orders, error } = await anonClient.from("orders").select("id");
 
-      // RLS policy denies select on orders for unauthenticated users
-      expect(error).toBeNull();
-      expect(orders).toEqual([]); // 0 rows returned
+      // In Chunk 20d, SELECT privilege on orders is revoked from anon (42501)
+      expect(error?.code).toBe("42501");
     });
 
     it("prevents anon from invoking admin RPC procedures", async () => {
@@ -132,7 +133,7 @@ describe("Multi-Tenant Row Level Security (RLS) Isolation", () => {
         .from("restaurants")
         .update({ name: "Malicious Rename" })
         .eq("id", REST_B_ID)
-        .select();
+        .select("id");
 
       expect(error).toBeNull();
       expect(data).toEqual([]); // 0 rows updated

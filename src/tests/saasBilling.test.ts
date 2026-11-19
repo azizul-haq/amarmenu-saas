@@ -8,6 +8,7 @@ import {
   getPlatformBillingOverview,
 } from "../../src/services/subscriptionService";
 import { getServiceRoleClient } from "./serviceRoleClient";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
   let ownerAClient: SupabaseClient;
@@ -27,23 +28,25 @@ describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const creds = getTestCredentials();
+
     // Authenticate Owner A
     const authA = await ownerAClient.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (authA.error) throw new Error(`Owner A auth failed: ${authA.error.message}`);
 
     // Set singleton session to Owner A initially
     await supabase.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
 
     // Authenticate Admin
     const authAdmin = await adminClient.auth.signInWithPassword({
-      email: "admin@foodorder.com",
-      password: "admin123",
+      email: creds.super_admin.email,
+      password: creds.super_admin.password,
     });
     if (authAdmin.error) throw new Error(`Admin auth failed: ${authAdmin.error.message}`);
 
@@ -112,6 +115,7 @@ describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
       const { data, error } = await adminClient.rpc("verify_subscription_payment", {
         p_invoice_id: submittedInvoiceId,
         p_action: "approve",
+        p_amount: 2999,
       });
 
       expect(error).toBeNull();
@@ -133,13 +137,20 @@ describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
       // Verify restaurant is active and unlocked
       const { data: restRow } = await adminClient
         .from("restaurants")
-        .select("status, is_active, block_reason")
+        .select("status, is_active")
         .eq("id", restAId)
         .single();
 
       expect(restRow!.status).toBe("active");
       expect(restRow!.is_active).toBe(true);
-      expect(restRow!.block_reason).toBeNull();
+
+      const { data: notesRow } = await adminClient
+        .from("restaurant_admin_notes")
+        .select("block_reason")
+        .eq("restaurant_id", restAId)
+        .maybeSingle();
+
+      expect(notesRow?.block_reason || null).toBeNull();
     });
 
     it("rejects an invalid payment with mandatory rejection reason", async () => {
@@ -158,6 +169,7 @@ describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
       const { data, error } = await adminClient.rpc("verify_subscription_payment", {
         p_invoice_id: invalidInvoiceId,
         p_action: "reject",
+        p_amount: 1499,
         p_rejection_reason: "Transaction ID not found in bKash merchant statement",
       });
 
@@ -189,11 +201,12 @@ describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
       const { data, error } = await adminClient.rpc("verify_subscription_payment", {
         p_invoice_id: submitRes.data!.invoice_id,
         p_action: "reject",
+        p_amount: 1499,
         p_rejection_reason: "", // Empty reason
       });
 
       expect(data).toBeNull();
-      expect(error).toBeDefined();
+      expect(error).not.toBeNull();
       expect(error?.code).toBe("P0006");
       expect(error?.message).toMatch(/valid rejection reason is required/i);
     });
@@ -201,10 +214,11 @@ describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
 
   describe("3. Subscription Grace Periods & Auto-Lock Evaluation", () => {
     beforeAll(async () => {
+      const creds = getTestCredentials();
       // Authenticate singleton client as Super Admin for platform admin operations
       await supabase.auth.signInWithPassword({
-        email: "admin@foodorder.com",
-        password: "admin123",
+        email: creds.super_admin.email,
+        password: creds.super_admin.password,
       });
     });
 
@@ -237,14 +251,19 @@ describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
       expect(res.success).toBe(true);
       expect(res.data!.plan_code).toBe("enterprise");
 
-      // Verify restaurant was upgraded to enterprise
-      const { data: restRow } = await adminClient
-        .from("restaurants")
-        .select("subscription_plan")
-        .eq("id", restAId)
-        .single();
+      // Verify restaurant was upgraded to enterprise via admin_list_restaurants RPC
+      const { data: allRest } = await adminClient.rpc("admin_list_restaurants");
+      const restRow = (allRest || []).find((r: any) => r.id === restAId);
 
-      expect(restRow!.subscription_plan).toBe("enterprise");
+      expect(restRow?.subscription_plan).toBe("enterprise");
+
+      // Restore restaurant plan back to 'growth'
+      await adminOverrideSubscription({
+        restaurantId: restAId,
+        planCode: "growth",
+        status: "active",
+        extendDays: 30,
+      });
     });
   });
 
@@ -254,21 +273,32 @@ describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
 
       expect(res.success).toBe(true);
       expect(res.data!.metrics).toBeDefined();
-      expect(res.data!.metrics.total_mrr).toBeGreaterThan(0);
+
+      // Check that test restaurant's subscription contributes to active subscriptions & MRR
+      const restASub = (res.data!.subscriptions || []).find((s: any) => s.restaurant_id === restAId);
+      expect(restASub).toBeDefined();
+      expect(restASub!.status).toBe("active");
+
+      // Monthly Growth plan price is 2999
+      expect(res.data!.metrics.total_mrr).toBeGreaterThanOrEqual(2999);
       expect(res.data!.metrics.total_arr).toBe(res.data!.metrics.total_mrr * 12);
       expect(res.data!.metrics.active_subscriptions).toBeGreaterThanOrEqual(1);
-      expect(Array.isArray(res.data!.invoices)).toBe(true);
-      expect(Array.isArray(res.data!.subscriptions)).toBe(true);
+
+      // Verify the invoices list includes our test submitted invoice
+      const foundInvoice = (res.data!.invoices || []).find((inv: any) => inv.id === submittedInvoiceId);
+      expect(foundInvoice).toBeDefined();
+      expect(foundInvoice!.restaurant_id).toBe(restAId);
     });
 
     it("strictly prevents regular restaurant staff from approving subscription payments (P0002)", async () => {
       const { data, error } = await ownerAClient.rpc("verify_subscription_payment", {
         p_invoice_id: submittedInvoiceId,
         p_action: "approve",
+        p_amount: 2999,
       });
 
       expect(data).toBeNull();
-      expect(error).toBeDefined();
+      expect(error).not.toBeNull();
       expect(error?.code).toBe("P0002");
       expect(error?.message).toMatch(/Super Admin authorization required/i);
     });
@@ -282,7 +312,7 @@ describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
       });
 
       expect(data).toBeNull();
-      expect(error).toBeDefined();
+      expect(error).not.toBeNull();
       expect(error?.code).toBe("P0002");
       expect(error?.message).toMatch(/Super Admin authorization required/i);
     });
@@ -295,7 +325,7 @@ describe("Chunk 17: Super Admin Billing & SaaS Subscriptions", () => {
       });
 
       expect(data).toBeNull();
-      expect(error).toBeDefined();
+      expect(error).not.toBeNull();
       expect(error?.code).toBe("P0002");
       expect(error?.message).toMatch(/Access denied/i);
     });

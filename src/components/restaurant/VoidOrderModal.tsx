@@ -165,7 +165,7 @@ export const VoidOrderModal: React.FC<VoidOrderModalProps> = ({
               className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-lg tracking-widest text-center font-bold font-mono focus:ring-2 focus:ring-red-500 focus:border-red-500"
             />
             <p className="text-[11px] text-gray-500 mt-1">
-              Default owner PIN is <strong>1234</strong> unless updated.
+              Authorized manager or owner 4–6 digit security PIN.
             </p>
           </div>
 

@@ -15,6 +15,7 @@ export type SubmitPaymentInput = z.infer<typeof submitPaymentSchema>;
 export const verifyPaymentSchema = z.object({
   invoiceId: z.string().uuid("Invalid invoice ID"),
   action: z.enum(["approve", "reject"]),
+  amount: z.number().positive("Amount must be positive"),
   rejectionReason: z.string().trim().min(3, "Rejection reason must be at least 3 characters").optional(),
 }).refine(
   (data) => {
@@ -93,4 +94,20 @@ export interface PlatformBillingOverview {
   metrics: PlatformBillingMetrics;
   invoices: SubscriptionInvoice[];
   subscriptions: TenantSubscriptionRecord[];
+}
+
+export interface SubscriptionPlanRecord {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  price_monthly: number;
+  price_yearly: number;
+  max_tables: number | null;
+  max_staff: number | null;
+  features: string[];
+  is_active: boolean;
+  active_subscribers?: number;
+  created_at?: string;
+  updated_at?: string;
 }

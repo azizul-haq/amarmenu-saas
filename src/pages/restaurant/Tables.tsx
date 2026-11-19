@@ -25,6 +25,7 @@ import {
 import type { RestaurantTable } from "../../config/supabase";
 import { restaurantTableSchema } from "../../schemas/tableSchema";
 import { Card, Button, Input, Modal, Loading, Alert } from "../../components/ui";
+import { copyToClipboard } from "../../utils/helpers";
 
 const TablesPage: React.FC = () => {
   const { restaurant } = useAuth();
@@ -80,12 +81,10 @@ const TablesPage: React.FC = () => {
 
   const handleCopyLink = async (qrToken: string) => {
     const url = getTableUrl(qrToken);
-    try {
-      await navigator.clipboard.writeText(url);
+    const success = await copyToClipboard(url);
+    if (success) {
       setCopiedToken(qrToken);
       setTimeout(() => setCopiedToken(null), 2000);
-    } catch (e) {
-      console.error("Copy failed", e);
     }
   };
 

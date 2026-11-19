@@ -14,6 +14,7 @@ import {
   Layers,
 } from "lucide-react";
 import { Card, Button, Loading } from "../../components/ui";
+import { useAuth } from "../../context/AuthContext";
 import {
   LineChart,
   Line,
@@ -118,21 +119,30 @@ export const Reports: React.FC = () => {
     [calculateDateBounds]
   );
 
+  const { restaurant, restaurantId: authRestaurantId } = useAuth();
+
   useEffect(() => {
-    let rId = "";
-    const currentRestaurant = localStorage.getItem("current_restaurant");
-    if (currentRestaurant) {
-      try {
-        const parsed = JSON.parse(currentRestaurant);
-        rId = parsed.id || "";
-      } catch {
-        // fallback
+    let rId = authRestaurantId || restaurant?.id || "";
+
+    if (!rId) {
+      const currentRestaurant = localStorage.getItem("current_restaurant");
+      if (currentRestaurant) {
+        try {
+          const parsed = JSON.parse(currentRestaurant);
+          rId = parsed.id || "";
+        } catch {
+          // fallback
+        }
       }
     }
 
     if (!rId) {
-      const user = JSON.parse(localStorage.getItem("user") || "{}");
-      rId = user.restaurant_id || "";
+      try {
+        const user = JSON.parse(localStorage.getItem("user") || "{}");
+        rId = user.restaurant_id || "";
+      } catch {
+        // fallback
+      }
     }
 
     if (rId) {
@@ -142,7 +152,7 @@ export const Reports: React.FC = () => {
       setLoading(false);
       setError("No active restaurant session found.");
     }
-  }, [fetchReports, rangePreset]);
+  }, [authRestaurantId, restaurant?.id, fetchReports, rangePreset]);
 
   const handleApplyCustomDates = () => {
     if (restaurantId && customStart && customEnd) {

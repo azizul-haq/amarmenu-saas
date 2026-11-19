@@ -7,10 +7,11 @@ const corsHeaders = {
 };
 
 interface RequestPayload {
-  requestId: string;
+  action?: string;
+  requestId?: string;
+  restaurantId?: string;
   subscriptionPlan?: string;
   internalNotes?: string;
-  appUrl?: string;
 }
 
 serve(async (req: Request) => {
@@ -23,6 +24,8 @@ serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    // Base URL strictly comes from server environment variable, never from client body or headers
+    const targetAppUrl = Deno.env.get("APP_URL") || "http://localhost:5173";
 
     if (!supabaseUrl || !supabaseServiceRoleKey) {
       throw new Error("Missing Supabase environment variables on server");
@@ -55,11 +58,12 @@ serve(async (req: Request) => {
       );
     }
 
-    // Check platform_admins table
+    // Check platform_admins table strictly for active super_admin
     const { data: adminRecord, error: adminError } = await userClient
       .from("platform_admins")
       .select("id, role, is_active")
       .eq("auth_user_id", user.id)
+      .eq("role", "super_admin")
       .eq("is_active", true)
       .maybeSingle();
 
@@ -70,9 +74,145 @@ serve(async (req: Request) => {
       );
     }
 
-    // 4. Parse request payload
+    // 4. Initialize Privileged Service Role Client (Edge server only)
+    const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: { persistSession: false },
+    });
+
     const body: RequestPayload = await req.json();
-    const { requestId, subscriptionPlan = "free_trial", internalNotes, appUrl } = body;
+
+    // =========================================================================
+    // ACTION: RESEND INVITE LINK (Items 7, 8, 9)
+    // =========================================================================
+    if (body.action === "resend_invite") {
+      const restaurantId = body.restaurantId;
+      if (!restaurantId || typeof restaurantId !== "string" || !/^[0-9a-f-]{36}$/i.test(restaurantId)) {
+        return new Response(
+          JSON.stringify({ error: "Missing or invalid required parameter: restaurantId (UUID required, free-form email not permitted)" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Atomic DB Rate Limiting: max 5 resend requests per 5 minutes per restaurant
+      const { data: allowed } = await adminClient.rpc("check_and_increment_rate_limit", {
+        p_bucket: `resend_invite:${restaurantId}`,
+        p_identifier: user.id,
+        p_max_attempts: 5,
+        p_window_seconds: 300,
+      });
+
+      if (allowed === false) {
+        return new Response(
+          JSON.stringify({ error: "Rate limit exceeded. Maximum 5 invite resends per 5 minutes allowed." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Resolve owner server-side (strictly no free-form email allowed)
+      const { data: ownerStaff, error: staffError } = await adminClient
+        .from("restaurant_staff")
+        .select("id, auth_user_id, email, full_name, restaurant_id")
+        .eq("restaurant_id", restaurantId)
+        .eq("role", "owner")
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (staffError || !ownerStaff || !ownerStaff.email) {
+        return new Response(
+          JSON.stringify({ error: "Active restaurant owner not found for this restaurant" }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Check whether user has ever signed in
+      let userLastSignIn: string | null = null;
+      if (ownerStaff.auth_user_id) {
+        const { data: authUserData } = await adminClient.auth.admin.getUserById(ownerStaff.auth_user_id);
+        userLastSignIn = authUserData?.user?.last_sign_in_at || null;
+      }
+
+      // If already active: do NOT return a link; trigger normal GoTrue password reset email instead
+      if (userLastSignIn !== null) {
+        await adminClient.auth.resetPasswordForEmail(ownerStaff.email, {
+          redirectTo: `${targetAppUrl}/set-password`,
+        });
+
+        // Audit log WITHOUT token or URL
+        await adminClient.from("platform_audit_logs").insert({
+          actor_id: user.id,
+          actor_email: user.email,
+          action: "resend_invite_password_reset_dispatched",
+          target_type: "restaurant",
+          target_id: restaurantId,
+          old_values: null,
+          new_values: {
+            owner_email: ownerStaff.email,
+            status: "already_active",
+            path_run: "reset_email",
+          },
+          reason: "Account already active; dispatched standard GoTrue password reset email",
+        });
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: "Account is already active. A standard password reset email has been dispatched directly to the owner.",
+            inviteLink: null,
+            linkType: null,
+            ownerEmail: ownerStaff.email,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Account has never signed in: generate recovery link for existing owner user
+      const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
+        type: "recovery",
+        email: ownerStaff.email,
+        options: {
+          redirectTo: `${targetAppUrl}/set-password`,
+        },
+      });
+
+      if (linkError || !linkData) {
+        throw new Error(`Failed to generate activation recovery link: ${linkError?.message}`);
+      }
+
+      const tokenHash = linkData.properties?.hashed_token || "";
+      const freshLink = `${targetAppUrl}/set-password?token_hash=${tokenHash}&type=recovery`;
+
+      // Audit log WITHOUT token or URL
+      await adminClient.from("platform_audit_logs").insert({
+        actor_id: user.id,
+        actor_email: user.email,
+        action: "resend_invite_recovery_link_generated",
+        target_type: "restaurant",
+        target_id: restaurantId,
+        old_values: null,
+        new_values: {
+          owner_email: ownerStaff.email,
+          status: "pending_activation",
+          path_run: "recovery",
+        },
+        reason: "Super Admin regenerated activation recovery link for never-signed-in owner",
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: "Activation link generated successfully.",
+          inviteLink: freshLink,
+          linkType: "recovery",
+          ownerEmail: ownerStaff.email,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // =========================================================================
+    // DEFAULT ACTION: APPROVE REGISTRATION REQUEST
+    // =========================================================================
+    const { requestId, subscriptionPlan = "free_trial", internalNotes } = body;
 
     if (!requestId) {
       return new Response(
@@ -81,12 +221,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // 5. Initialize Privileged Service Role Client (Edge server only)
-    const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { persistSession: false },
-    });
-
-    // 6. Fetch Registration Request
+    // Fetch Registration Request
     const { data: request, error: requestError } = await adminClient
       .from("registration_requests")
       .select("*")
@@ -107,7 +242,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // 7. Generate unique slug from restaurant name
+    // Generate unique slug
     const baseSlug = request.restaurant_name
       .toLowerCase()
       .trim()
@@ -126,7 +261,7 @@ serve(async (req: Request) => {
       slug = `${baseSlug}-${Math.random().toString(36).substring(2, 6)}`;
     }
 
-    // 8. Create the Restaurant
+    // Create the Restaurant
     const { data: newRestaurant, error: createRestError } = await adminClient
       .from("restaurants")
       .insert({
@@ -148,7 +283,7 @@ serve(async (req: Request) => {
       throw new Error(`Failed to create restaurant: ${createRestError?.message}`);
     }
 
-    // 9. Provision Subscription
+    // Provision Subscription
     const { data: planRecord } = await adminClient
       .from("plans")
       .select("id")
@@ -163,14 +298,12 @@ serve(async (req: Request) => {
       current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     });
 
-    // 10. Generate Set-Password / Invite Link via GoTrue Admin API
-    const targetAppUrl = appUrl || "http://localhost:5173";
+    // Generate Set-Password / Invite Link via GoTrue Admin API
     const redirectUrl = `${targetAppUrl}/set-password`;
-
     let actionLink = "";
     let authUserId: string | null = null;
+    let effectiveLinkType: "invite" | "recovery" = "invite";
 
-    // Check if user already exists in auth.users
     const { data: existingUsers } = await adminClient.auth.admin.listUsers();
     const existingUser = existingUsers?.users?.find(
       (u) => u.email?.toLowerCase() === request.email.toLowerCase()
@@ -178,7 +311,6 @@ serve(async (req: Request) => {
 
     if (existingUser) {
       authUserId = existingUser.id;
-      // Generate password recovery / set password link
       const { data: recoveryData, error: recoveryError } =
         await adminClient.auth.admin.generateLink({
           type: "recovery",
@@ -186,11 +318,11 @@ serve(async (req: Request) => {
           options: { redirectTo: redirectUrl },
         });
 
-      if (!recoveryError && recoveryData?.properties?.action_link) {
-        actionLink = recoveryData.properties.action_link;
+      if (!recoveryError && recoveryData?.properties?.hashed_token) {
+        effectiveLinkType = "recovery";
+        actionLink = `${targetAppUrl}/set-password?token_hash=${recoveryData.properties.hashed_token}&type=recovery`;
       }
     } else {
-      // Generate invite link (creates user in auth.users with no password yet)
       const { data: inviteData, error: inviteError } =
         await adminClient.auth.admin.generateLink({
           type: "invite",
@@ -209,10 +341,12 @@ serve(async (req: Request) => {
       }
 
       authUserId = inviteData?.user?.id || null;
-      actionLink = inviteData?.properties?.action_link || "";
+      const tokenHash = inviteData?.properties?.hashed_token || "";
+      effectiveLinkType = "invite";
+      actionLink = `${targetAppUrl}/set-password?token_hash=${tokenHash}&type=invite`;
     }
 
-    // 11. Create or update restaurant_staff record linking owner to restaurant
+    // Link owner to restaurant in restaurant_staff
     await adminClient.from("restaurant_staff").insert({
       auth_user_id: authUserId,
       restaurant_id: newRestaurant.id,
@@ -223,35 +357,49 @@ serve(async (req: Request) => {
       is_active: true,
     });
 
-    // 12. Update Registration Request status to approved
+    // Update Registration Request status to approved
     await adminClient
       .from("registration_requests")
       .update({
         status: "approved",
-        reviewed_at: new Date().toISOString(),
-        internal_notes: internalNotes || null,
+        updated_at: new Date().toISOString(),
       })
       .eq("id", requestId);
+
+    // Audit log in platform_audit_logs (no tokens/links)
+    await adminClient.from("platform_audit_logs").insert({
+      actor_id: user.id,
+      actor_email: user.email || "superadmin@amarmenu.com",
+      action: "approve_registration_edge_function",
+      target_type: "restaurant",
+      target_id: newRestaurant.id,
+      old_values: { registration_request_id: requestId, status: "pending" },
+      new_values: {
+        restaurant_id: newRestaurant.id,
+        status: "approved",
+        plan: subscriptionPlan,
+        email: request.email,
+        link_type: effectiveLinkType,
+      },
+      reason: internalNotes || "Approved via Edge Function",
+    });
 
     return new Response(
       JSON.stringify({
         success: true,
-        restaurant: {
-          id: newRestaurant.id,
-          name: newRestaurant.name,
-          slug: newRestaurant.slug,
-        },
+        restaurantId: newRestaurant.id,
+        restaurantSlug: newRestaurant.slug,
+        ownerEmail: request.email,
         inviteLink: actionLink,
-        email: request.email,
-        ownerName: request.owner_name,
+        linkType: effectiveLinkType,
+        message: "Registration approved successfully and onboarding link generated",
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Internal Server Error";
-    console.error("Error in approve-registration:", err);
+    const error = err as Error;
     return new Response(
-      JSON.stringify({ error: message }),
+      JSON.stringify({ error: error.message || "An unexpected error occurred" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

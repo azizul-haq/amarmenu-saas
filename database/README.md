@@ -1,12 +1,9 @@
 # Database Setup Guide
 
-project name - resturant-ordering-saas
-DB PASS - NaVvC2VBQiO8wMVW 
-
 ## Prerequisites
 
 - A Supabase project created at [supabase.com](https://supabase.com)
-- Project URL and Anon Key copied to `src/config/config.ts`
+- Project URL and Anon Key configured in environment variables
 
 ## Setting Up the Database with Real-time Replication
 
@@ -123,15 +120,6 @@ INSERT INTO registration_requests (restaurant_name, ...) VALUES (...);
 1. Open restaurant orders page in Browser 1
 2. Create a new order from customer page in Browser 2
 3. Watch new order appear instantly in Browser 1 with sound notification ✨
-
-## Default Admin Credentials
-
-```
-Email: admin@foodbooking.com
-Password: admin123
-```
-
-⚠️ **Change this immediately in production!**
 
 ## Troubleshooting
 

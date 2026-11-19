@@ -217,11 +217,13 @@ describe("Bilingual Menu Management, Validation & Soft Delete", () => {
       expect(activeItems).toEqual([]);
 
       // 3. Customer query through anon client respects RLS soft-delete filter
-      const { data: anonItems } = await anonClient
+      const { data: anonItems, error: anonError } = await anonClient
         .from("menu_items")
         .select("id, name")
         .eq("id", createdItemId!);
 
+      if (anonError) console.error("Anon select error in menu.test:", anonError);
+      expect(anonError).toBeNull();
       expect(anonItems).toEqual([]);
     });
   });

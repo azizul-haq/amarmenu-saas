@@ -127,36 +127,58 @@ export const failOnlinePayment = async (
 };
 
 /**
- * Fetches an online payment session by tran_id or session_id
+ * Fetches sanitized payment status via RPC by secure 128-bit polling token (safe for public/anon customer callers)
  */
-export const getOnlinePaymentSession = async (
-  sessionIdOrTranId: string
-): Promise<{ success: boolean; session?: OnlinePaymentSession; error?: string }> => {
+export interface PaymentStatusInfo {
+  status: string;
+  invoice_number?: string | null;
+}
+
+export const getPaymentStatus = async (
+  pollingToken: string
+): Promise<{ success: boolean; data?: PaymentStatusInfo; error?: string }> => {
   try {
-    const { data, error } = await supabase
-      .from("online_payment_sessions")
-      .select("*")
-      .or(`tran_id.eq.${sessionIdOrTranId},session_id.eq.${sessionIdOrTranId}`)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc("get_payment_status", {
+      p_polling_token: pollingToken,
+    });
 
     if (error) {
       return { success: false, error: error.message };
     }
 
-    if (!data) {
-      return { success: false, error: "Payment session not found" };
+    if (!data || data.success === false) {
+      return { success: false, error: data?.error || "Payment session not found" };
     }
 
     return {
       success: true,
-      session: data as OnlinePaymentSession,
+      data: {
+        status: data.status,
+        invoice_number: data.invoice_number,
+      },
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Failed to retrieve payment session";
+    const message = err instanceof Error ? err.message : "Failed to retrieve payment status";
     return { success: false, error: message };
   }
+};
+
+/**
+ * Fetches an online payment session status by polling token via safe RPC
+ */
+export const getOnlinePaymentSession = async (
+  pollingToken: string
+): Promise<{ success: boolean; session?: Partial<OnlinePaymentSession>; error?: string }> => {
+  const res = await getPaymentStatus(pollingToken);
+  if (!res.success || !res.data) {
+    return { success: false, error: res.error || "Payment session not found" };
+  }
+  return {
+    success: true,
+    session: {
+      status: res.data.status as any,
+    } as Partial<OnlinePaymentSession>,
+  };
 };
 
 /**

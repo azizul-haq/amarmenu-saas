@@ -3,11 +3,11 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import {
   initiateOnlinePayment,
-  getOnlinePaymentSession,
   generateMockTrxId,
 } from "../services/onlinePaymentService";
 import type { PaymentCompletionResult } from "../schemas/onlinePaymentSchema";
 import { getServiceRoleClient } from "./serviceRoleClient";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Settlement", () => {
   let anonClient: SupabaseClient;
@@ -40,9 +40,10 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
     }
 
     // Authenticate Super Admin for service-role simulation proxy
+    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
-      email: "admin@foodorder.com",
-      password: "admin123",
+      email: creds.super_admin.email,
+      password: creds.super_admin.password,
     });
     if (authAdmin.error) {
       throw new Error(`Admin auth failed: ${authAdmin.error.message}`);
@@ -323,8 +324,8 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
     });
   });
 
-  describe("3. Anti-Bypass Direct UPDATE Protection on Orders (Chunk 19b)", () => {
-    it("blocks authenticated staff from directly updating payment_status = 'paid' with P0007", async () => {
+  describe("3. Anti-Bypass Direct UPDATE Protection on Orders (Chunk 19b & 22c Privilege Hardening)", () => {
+    it("blocks authenticated staff from directly updating payment_status via PostgREST with 42501", async () => {
       const order = await placeTestOrder(false);
 
       const { error } = await ownerAClient
@@ -333,11 +334,11 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
         .eq("id", order.orderId);
 
       expect(error).not.toBeNull();
-      expect(error!.code).toBe("P0007");
-      expect(error!.message).toContain("Direct update prohibited");
+      expect(error!.code).toBe("42501");
+      expect(error!.message).toContain("permission denied for table orders");
     });
 
-    it("blocks authenticated staff from directly updating status = 'completed' with P0007", async () => {
+    it("blocks authenticated staff from directly updating status = 'completed' via PostgREST with 42501", async () => {
       const order = await placeTestOrder(false);
 
       const { error } = await ownerAClient
@@ -346,10 +347,11 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
         .eq("id", order.orderId);
 
       expect(error).not.toBeNull();
-      expect(error!.code).toBe("P0007");
+      expect(error!.code).toBe("42501");
+      expect(error!.message).toContain("permission denied for table orders");
     });
 
-    it("blocks authenticated staff from directly assigning invoice_number with P0007", async () => {
+    it("blocks authenticated staff from directly assigning invoice_number via PostgREST with 42501", async () => {
       const order = await placeTestOrder(false);
 
       const { error } = await ownerAClient
@@ -358,7 +360,22 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
         .eq("id", order.orderId);
 
       expect(error).not.toBeNull();
-      expect(error!.code).toBe("P0007");
+      expect(error!.code).toBe("42501");
+      expect(error!.message).toContain("permission denied for table orders");
+    });
+
+    it("proves the trigger validate_order_status_transition still blocks payment tampering with P0007 through remaining paths", async () => {
+      const order = await placeTestOrder(false);
+      try {
+        await serviceRole.query(
+          `UPDATE orders SET payment_status = 'paid' WHERE id = $1`,
+          [order.orderId]
+        );
+        expect.unreachable("Trigger should have blocked direct payment update");
+      } catch (err: any) {
+        expect(err.code).toBe("P0007");
+        expect(err.message).toContain("Direct update prohibited");
+      }
     });
 
     it("blocks anon clients from directly updating orders via RLS", async () => {
@@ -374,7 +391,8 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
       if (!error) {
         expect(data?.length || 0).toBe(0);
       } else {
-        expect(error).toBeDefined();
+        expect(error).not.toBeNull();
+        expect(error?.code).toBe("42501");
       }
     });
   });
@@ -507,8 +525,12 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
       expect(completeRes.data?.gateway_trx_id).toBe(bankTranId);
 
       // Verify online_payment_sessions stores val_id and metadata
-      const { session } = await getOnlinePaymentSession(sessionId);
-      expect(session).toBeDefined();
+      const sessionRows = await serviceRole.query<any>(
+        `SELECT * FROM online_payment_sessions WHERE tran_id = $1`,
+        [sessionId]
+      );
+      expect(sessionRows.length).toBe(1);
+      const session = sessionRows[0];
       expect(session?.status).toBe("completed");
       expect(session?.val_id).toBe(valId);
       expect(session?.gateway_trx_id).toBe(bankTranId);
@@ -527,8 +549,12 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
       expect(cancelRes.success).toBe(true);
 
       // Verify session is marked cancelled
-      const { session } = await getOnlinePaymentSession(sessionId);
-      expect(session?.status).toBe("cancelled");
+      const sessionRows = await serviceRole.query<any>(
+        `SELECT * FROM online_payment_sessions WHERE tran_id = $1`,
+        [sessionId]
+      );
+      expect(sessionRows.length).toBe(1);
+      expect(sessionRows[0]?.status).toBe("cancelled");
 
       // Verify order is still pending and unpaid
       const { data: orderCheck } = await ownerAClient

@@ -7,6 +7,7 @@ import {
   getMushak63Report,
 } from "../services/reportService";
 import { settleOrderBill } from "../services/restaurantService";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 16: Sales Analytics & Bangladesh NBR Mushak-6.3 VAT Reports", () => {
   let anonClient: SupabaseClient;
@@ -47,9 +48,10 @@ describe("Chunk 16: Sales Analytics & Bangladesh NBR Mushak-6.3 VAT Reports", ()
     });
 
     // 2. Authenticate Super Admin
+    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
-      email: "admin@foodorder.com",
-      password: "admin123",
+      email: creds.super_admin.email,
+      password: creds.super_admin.password,
     });
     if (authAdmin.error) throw new Error(`Admin auth failed: ${authAdmin.error.message}`);
 
@@ -260,7 +262,7 @@ describe("Chunk 16: Sales Analytics & Bangladesh NBR Mushak-6.3 VAT Reports", ()
     it("rejects invalid date parameters via Zod schema", async () => {
       const invalidRes = await getRestaurantSalesAnalytics(restAId, "", "");
       expect(invalidRes.success).toBe(false);
-      expect(invalidRes.error).toBeDefined();
+      expect(invalidRes.error).not.toBeNull();
     });
   });
 
@@ -278,7 +280,7 @@ describe("Chunk 16: Sales Analytics & Bangladesh NBR Mushak-6.3 VAT Reports", ()
       });
 
       expect(data).toBeNull();
-      expect(error).toBeDefined();
+      expect(error).not.toBeNull();
       expect(error?.code).toBe("P0002");
       expect(error?.message).toMatch(/Access denied/i);
     });
@@ -295,7 +297,7 @@ describe("Chunk 16: Sales Analytics & Bangladesh NBR Mushak-6.3 VAT Reports", ()
       });
 
       expect(data).toBeNull();
-      expect(error).toBeDefined();
+      expect(error).not.toBeNull();
       expect(error?.code).toBe("P0002");
       expect(error?.message).toMatch(/Access denied/i);
     });

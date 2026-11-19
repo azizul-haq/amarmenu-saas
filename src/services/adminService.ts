@@ -102,6 +102,7 @@ export const createRestaurantAccount = async (
         p_request_id: requestId,
         p_subscription_plan: data.subscriptionPlan,
         p_internal_notes: data.internalNotes || null,
+        p_email: data.email || null,
       }
     );
 
@@ -151,13 +152,10 @@ export const subscribeToRestaurants = (
   callback: (restaurants: Restaurant[]) => void
 ) => {
   const fetchRestaurants = async () => {
-    const { data, error } = await supabase
-      .from("restaurants")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data, error } = await supabase.rpc("admin_list_restaurants");
 
     if (!error && data) {
-      callback(data);
+      callback(data as Restaurant[]);
     }
   };
 
@@ -208,7 +206,7 @@ export const getPlatformStats = async () => {
     ] = await Promise.all([
       supabase
         .from("restaurants")
-        .select("*", { count: "exact", head: true })
+        .select("id", { count: "exact", head: true })
         .eq("is_active", true),
       supabase
         .from("registration_requests")
@@ -242,4 +240,28 @@ export const getPlatformStats = async () => {
       todayRevenue: 0,
     };
   }
+};
+
+/**
+ * Resend invitation link for a restaurant owner (Super Admin only)
+ * Resolves owner server-side, checks last_sign_in_at, rate limits, audits.
+ */
+export const resendRestaurantInvite = async (
+  restaurantId: string
+): Promise<{ success: boolean; message?: string; inviteLink?: string; ownerEmail?: string; error?: string }> => {
+  const { data, error } = await supabase.functions.invoke("approve-registration", {
+    body: {
+      action: "resend_invite",
+      restaurantId,
+    },
+  });
+
+  if (error || !data) {
+    return {
+      success: false,
+      error: error?.message || "Failed to resend invite",
+    };
+  }
+
+  return data;
 };

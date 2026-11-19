@@ -1,0 +1,7 @@
+-- ==============================================================================
+-- AmarMenu Migration: 20261118000066_set_initial_owner_password.sql
+-- Deprecated: Direct initial owner password setup bypassed GoTrue invite verification.
+-- Replaced by GoTrue Admin generateLink + verifyOtp({ token_hash, type: 'invite' })
+-- in frontend SetPasswordPage.
+-- Function drop is executed in migration 71.
+-- ==============================================================================

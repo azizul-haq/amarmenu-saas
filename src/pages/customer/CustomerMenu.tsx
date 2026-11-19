@@ -91,7 +91,9 @@ const CustomerMenuContent: React.FC = () => {
 
     const { data, error } = await supabase
       .from("restaurants")
-      .select("*")
+      .select(
+        "id, name, name_bn, slug, address, city, phone, restaurant_type, logo_url, qr_code_url, currency, currency_symbol, default_vat_rate, service_charge_rate, status, is_active, created_at, updated_at"
+      )
       .eq("slug", slug)
       .eq("is_active", true)
       .single();
@@ -102,7 +104,7 @@ const CustomerMenuContent: React.FC = () => {
       return;
     }
 
-    setRestaurant(data);
+    setRestaurant(data as unknown as Restaurant);
   };
 
   // Verify Table QR Token if present

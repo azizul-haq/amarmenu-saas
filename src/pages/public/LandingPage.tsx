@@ -236,49 +236,53 @@ const LandingPage: React.FC = () => {
               <div
                 key={key}
                 className={`card ${
-                  key === "starter" ? "ring-2 ring-accent relative" : ""
-                }`}
+                  key === "growth" ? "ring-2 ring-accent relative shadow-xl" : ""
+                } flex flex-col justify-between`}
               >
-                {key === "starter" && (
-                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-accent text-white px-4 py-1 rounded-full text-sm font-medium">
+                {key === "growth" && (
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-accent text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm">
                     Most Popular
                   </div>
                 )}
-                <div className="text-center mb-6">
-                  <h3 className="text-xl font-bold text-text mb-2">
-                    {plan.name}
-                  </h3>
-                  <div className="mb-4">
-                    <span className="text-4xl font-bold text-text">
-                      {APP_CONFIG.defaultCurrency}
-                      {plan.price}
-                    </span>
-                    {plan.price > 0 && (
-                      <span className="text-text-secondary">
+                <div>
+                  <div className="text-center mb-6">
+                    <h3 className="text-xl font-bold text-text mb-1">
+                      {plan.name}
+                    </h3>
+                    <p className="text-xs text-text-secondary mb-3">
+                      {plan.tables} • {plan.staff}
+                    </p>
+                    <div className="mb-2">
+                      <span className="text-4xl font-extrabold text-text">
+                        {APP_CONFIG.defaultCurrency}
+                        {plan.price.toLocaleString()}
+                      </span>
+                      <span className="text-text-secondary text-sm">
                         /{plan.duration}
                       </span>
-                    )}
+                    </div>
+                    <div className="text-xs text-emerald-600 font-medium">
+                      Annual: {APP_CONFIG.defaultCurrency}{plan.priceYearly.toLocaleString()}/yr (20% off)
+                    </div>
+                    <div className="mt-2 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-accent/10 text-accent">
+                      {plan.freeTrialDays}-Day Free Trial Included
+                    </div>
                   </div>
-                  {plan.price === 0 && (
-                    <span className="text-sm text-text-secondary">
-                      {plan.duration}
-                    </span>
-                  )}
+                  <ul className="space-y-3 mb-6 text-sm">
+                    {plan.features.map((feature, index) => (
+                      <li key={index} className="flex items-start">
+                        <Check className="w-4 h-4 text-success mr-2 flex-shrink-0 mt-0.5" />
+                        <span className="text-text-secondary">{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <ul className="space-y-3 mb-6">
-                  {plan.features.map((feature, index) => (
-                    <li key={index} className="flex items-start">
-                      <Check className="w-5 h-5 text-success mr-2 flex-shrink-0 mt-0.5" />
-                      <span className="text-text-secondary">{feature}</span>
-                    </li>
-                  ))}
-                </ul>
                 <Link to="/register">
                   <Button
-                    variant={key === "starter" ? "primary" : "outline"}
+                    variant={key === "growth" ? "primary" : "outline"}
                     fullWidth
                   >
-                    {plan.price === 0 ? "Start Free Trial" : "Get Started"}
+                    Start {plan.freeTrialDays}-Day Free Trial
                   </Button>
                 </Link>
               </div>

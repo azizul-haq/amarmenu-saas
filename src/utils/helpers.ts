@@ -133,21 +133,6 @@ export const normalizeBDPhone = (phone: string): string => {
 };
 
 /**
- * Hash password using Web Crypto SHA-256 (replaces legacy crypto-js)
- * Note: Used only for legacy compatibility during migration; Supabase Auth bcrypt is used for all new accounts.
- */
-export const hashPassword = async (password: string): Promise<string> => {
-  if (typeof crypto !== "undefined" && crypto.subtle) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-  }
-  return password;
-};
-
-/**
  * Debounce function
  */
 export const debounce = <T extends (...args: unknown[]) => unknown>(
@@ -198,15 +183,57 @@ export const downloadFile = (url: string, filename: string) => {
 };
 
 /**
- * Copy to clipboard
+ * Copy to clipboard with fallback for non-secure HTTP contexts (e.g. LAN IPs like 192.168.x.x)
  */
 export const copyToClipboard = async (text: string): Promise<boolean> => {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch (err) {
-    return false;
+  if (!text) return false;
+
+  // 1. Try modern Clipboard API if supported and in a secure context
+  if (
+    typeof navigator !== "undefined" &&
+    navigator.clipboard &&
+    typeof navigator.clipboard.writeText === "function" &&
+    (typeof window !== "undefined" ? window.isSecureContext : true)
+  ) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to fallback
+    }
   }
+
+  // 2. Fallback for non-secure contexts (e.g. http://192.168.x.x:5173) or older browsers
+  if (typeof document !== "undefined") {
+    try {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      // Prevent scrolling or zooming in mobile browsers
+      textArea.style.position = "fixed";
+      textArea.style.top = "0";
+      textArea.style.left = "0";
+      textArea.style.width = "2em";
+      textArea.style.height = "2em";
+      textArea.style.padding = "0";
+      textArea.style.border = "none";
+      textArea.style.outline = "none";
+      textArea.style.boxShadow = "none";
+      textArea.style.background = "transparent";
+      textArea.setAttribute("readonly", "");
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      textArea.setSelectionRange(0, text.length);
+      const successful = document.execCommand("copy");
+      document.body.removeChild(textArea);
+      return successful;
+    } catch (err) {
+      console.error("Fallback clipboard copy failed:", err);
+      return false;
+    }
+  }
+
+  return false;
 };
 
 /**

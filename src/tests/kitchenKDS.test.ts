@@ -3,6 +3,8 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { recordKOTPrint } from "../services/restaurantService";
 import { supabase } from "../config/supabase";
+import { getServiceRoleClient } from "./serviceRoleClient";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Kitchen Display System (KDS) & KOT Thermal Print Tracking (Chunk 12)", () => {
   let anonClient: SupabaseClient;
@@ -39,9 +41,10 @@ describe("Kitchen Display System (KDS) & KOT Thermal Print Tracking (Chunk 12)",
     });
 
     // Authenticate Admin
+    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
-      email: "admin@foodorder.com",
-      password: "admin123",
+      email: creds.super_admin.email,
+      password: creds.super_admin.password,
     });
     if (authAdmin.error) throw new Error(`Admin auth failed: ${authAdmin.error.message}`);
 
@@ -226,23 +229,29 @@ describe("Kitchen Display System (KDS) & KOT Thermal Print Tracking (Chunk 12)",
     });
 
     it("prevents staff from printing KOT for another restaurant", async () => {
-      // Admin creates order for Restaurant B
-      const { data: orderB, error: insertError } = await adminClient
-        .from("orders")
-        .insert({
-          restaurant_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-          order_number: `ORD-KOT-B-${Date.now()}`,
-          order_type: "counter",
-          items: [],
-          subtotal: 150,
-          tax: 7.5,
-          total: 157.5,
-          status: "accepted",
-        })
-        .select()
-        .single();
-
-      expect(insertError).toBeNull();
+      // Create order for Restaurant B via service role
+      const serviceRole = getServiceRoleClient();
+      const [orderB] = await serviceRole.query<{ id: string }>(`
+        INSERT INTO orders (
+          restaurant_id,
+          order_number,
+          order_type,
+          items,
+          subtotal,
+          tax,
+          total,
+          status
+        ) VALUES (
+          'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+          'ORD-KOT-B-' || floor(random() * 1000000)::text,
+          'counter',
+          '[]'::jsonb,
+          150,
+          7.5,
+          157.5,
+          'accepted'
+        ) RETURNING id;
+      `);
 
       // Owner A attempts to print KOT for Restaurant B's order
       const { error } = await ownerClient.rpc("record_kot_print", { p_order_id: orderB.id });

@@ -3,6 +3,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { supabase } from "../config/supabase";
 import { updateOrderStatus, getOrderStatusHistory } from "../services/restaurantService";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Order State Machine, Server Transitions & Waiter Verification (Chunk 11)", () => {
   let anonClient: SupabaseClient;
@@ -38,9 +39,10 @@ describe("Order State Machine, Server Transitions & Waiter Verification (Chunk 1
     });
 
     // Authenticate Admin
+    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
-      email: "admin@foodorder.com",
-      password: "admin123",
+      email: creds.super_admin.email,
+      password: creds.super_admin.password,
     });
     if (authAdmin.error) throw new Error(`Admin auth failed: ${authAdmin.error.message}`);
 

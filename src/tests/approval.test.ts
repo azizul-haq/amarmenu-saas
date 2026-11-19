@@ -1,13 +1,18 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
+import { getServiceRoleClient } from "./serviceRoleClient";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Super Admin Registration Approval & Onboarding", () => {
   let anonClient: SupabaseClient;
   let adminClient: SupabaseClient;
   let sampleRequestId: string;
+  let sampleEmail: string;
+  const serviceDbClient = getServiceRoleClient();
 
   beforeAll(async () => {
+    const creds = getTestCredentials();
     anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
@@ -18,20 +23,20 @@ describe("Super Admin Registration Approval & Onboarding", () => {
 
     // Sign in as Super Admin
     const authAdmin = await adminClient.auth.signInWithPassword({
-      email: "admin@foodorder.com",
-      password: "admin123",
+      email: creds.super_admin.email,
+      password: creds.super_admin.password,
     });
     if (authAdmin.error) throw new Error(`Admin Auth failed: ${authAdmin.error.message}`);
 
     // Create a fresh test registration request using admin client
-    const testReqEmail = `testrest_${Date.now()}@amarmenu.com`;
+    sampleEmail = `testrest_${Date.now()}@amarmenu.com`;
     const { data: newReq, error: reqError } = await adminClient
       .from("registration_requests")
       .insert({
         restaurant_name: "Chittagong Biryani House",
         owner_name: "Rafiqul Islam",
         phone: "+8801811223344",
-        email: testReqEmail,
+        email: sampleEmail,
         city: "Chittagong",
         address: "GEC Circle, Chittagong",
         restaurant_type: "fine_dining",
@@ -88,12 +93,9 @@ describe("Super Admin Registration Approval & Onboarding", () => {
     expect(updatedReq?.internal_notes).toBe("Approved after document verification");
     expect(updatedReq?.reviewed_at).not.toBeNull();
 
-    // Verify restaurant is created and active
-    const { data: restaurant } = await adminClient
-      .from("restaurants")
-      .select("id, name, subscription_plan, is_active")
-      .eq("id", rpcData.restaurant_id)
-      .single();
+    // Verify restaurant is created and active via admin_list_restaurants RPC
+    const { data: allRest } = await adminClient.rpc("admin_list_restaurants");
+    const restaurant = (allRest || []).find((r: any) => r.id === rpcData.restaurant_id);
 
     expect(restaurant?.name).toBe("Chittagong Biryani House");
     expect(restaurant?.is_active).toBe(true);
@@ -118,5 +120,55 @@ describe("Super Admin Registration Approval & Onboarding", () => {
     expect(staff?.role).toBe("owner");
     expect(staff?.full_name).toBe("Rafiqul Islam");
     expect(staff?.is_active).toBe(true);
+
+    // 7. Verify set_initial_owner_password allows newly approved owner to set password and log in
+    const anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    // Rejection for non-existent email
+    const { error: invalidEmailErr } = await anonClient.rpc("set_initial_owner_password", {
+      p_email: "nonexistent_owner_email@example.com",
+      p_password: "NewPassword123!",
+    });
+    expect(invalidEmailErr).not.toBeNull();
+
+    // Success for approved owner
+    const newOwnerPassword = "RafiqSecurePass2026!";
+    const { data: setPassResult, error: setPassErr } = await anonClient.rpc(
+      "set_initial_owner_password",
+      {
+        p_email: sampleEmail,
+        p_password: newOwnerPassword,
+      }
+    );
+    expect(setPassErr).toBeNull();
+    expect(setPassResult?.success).toBe(true);
+    expect(setPassResult?.user_id).toBeDefined();
+
+    // Verify owner can now sign in with their new password
+    const ownerClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const signInRes = await ownerClient.auth.signInWithPassword({
+      email: sampleEmail,
+      password: newOwnerPassword,
+    });
+    expect(signInRes.error).toBeNull();
+    expect(signInRes.data.user?.email_confirmed_at).not.toBeNull();
+
+    // Verify owner has access to their restaurant
+    const { data: myRest, error: myRestErr } = await ownerClient.rpc("get_my_restaurant");
+    expect(myRestErr).toBeNull();
+    expect(myRest?.id).toBe(rpcData.restaurant_id);
+    expect(myRest?.name).toBe("Chittagong Biryani House");
+
+    // Clean up created test auth user (sets auth_user_id to null on staff)
+    await serviceDbClient.adminQuery("DELETE FROM auth.identities WHERE user_id = $1", [
+      setPassResult.user_id,
+    ]);
+    await serviceDbClient.adminQuery("DELETE FROM auth.users WHERE id = $1", [
+      setPassResult.user_id,
+    ]);
   });
 });

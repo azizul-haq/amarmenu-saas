@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { getCustomerOrder } from "../../services/restaurantService";
 import type { Order, OrderItem } from "../../config/supabase";
-import { formatCurrency, formatDateTime } from "../../utils/helpers";
+import { formatCurrency, formatDateTime, copyToClipboard } from "../../utils/helpers";
 import { Card, Button, Loading } from "../../components/ui";
 import { OnlinePaymentModal } from "../../components/customer/OnlinePaymentModal";
 
@@ -74,11 +74,13 @@ const OrderStatusPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [orderId, order?.status]);
 
-  const handleCopyOrderNumber = () => {
+  const handleCopyOrderNumber = async () => {
     if (!order?.order_number) return;
-    navigator.clipboard.writeText(order.order_number);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const success = await copyToClipboard(order.order_number);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   if (loading) {

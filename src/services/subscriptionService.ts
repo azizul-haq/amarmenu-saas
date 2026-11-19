@@ -95,6 +95,7 @@ export const verifySubscriptionPayment = async (
   const { data, error } = await supabase.rpc("verify_subscription_payment", {
     p_invoice_id: input.invoiceId,
     p_action: input.action,
+    p_amount: input.amount,
     p_rejection_reason: input.rejectionReason || null,
   });
 
@@ -119,6 +120,7 @@ export const verifySubscriptionPayment = async (
 
 /**
  * Run subscription sweep to assign grace periods (7 days) and suspend/lock expired accounts
+ * Calls the Super Admin authenticated wrapper admin_run_grace_sweep()
  */
 export const evaluateSubscriptionGraceAndLock = async (): Promise<{
   success: boolean;
@@ -129,7 +131,7 @@ export const evaluateSubscriptionGraceAndLock = async (): Promise<{
   };
   error?: string;
 }> => {
-  const { data, error } = await supabase.rpc("evaluate_subscription_grace_and_lock");
+  const { data, error } = await supabase.rpc("admin_run_grace_sweep");
 
   if (error || !data) {
     return {
@@ -144,6 +146,43 @@ export const evaluateSubscriptionGraceAndLock = async (): Promise<{
       grace_period_assigned: number;
       suspended_and_locked: number;
       evaluated_at: string;
+    },
+  };
+};
+
+/**
+ * Super Admin release burned TrxID for a rejected subscription payment
+ */
+export const adminReleaseSubscriptionTrxid = async (
+  invoiceId: string,
+  reason?: string
+): Promise<{
+  success: boolean;
+  data?: {
+    invoice_id: string;
+    released_trxid: string;
+    message: string;
+  };
+  error?: string;
+}> => {
+  const { data, error } = await supabase.rpc("admin_release_subscription_trxid", {
+    p_invoice_id: invoiceId,
+    p_reason: reason || null,
+  });
+
+  if (error || !data) {
+    return {
+      success: false,
+      error: error?.message || "Failed to release transaction ID",
+    };
+  }
+
+  return {
+    success: true,
+    data: data as {
+      invoice_id: string;
+      released_trxid: string;
+      message: string;
     },
   };
 };
@@ -325,3 +364,94 @@ export const exportSubscriptionInvoicesCSV = (
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 };
+
+/**
+ * Super Admin: List all subscription plans with subscriber counts
+ */
+export const adminListPlans = async (): Promise<{
+  success: boolean;
+  plans: import("../schemas/subscriptionSchema").SubscriptionPlanRecord[];
+  error?: string;
+}> => {
+  const { data, error } = await supabase.rpc("admin_list_plans");
+
+  if (error || !data) {
+    return {
+      success: false,
+      plans: [],
+      error: error?.message || "Failed to load subscription plans",
+    };
+  }
+
+  return {
+    success: true,
+    plans: data as import("../schemas/subscriptionSchema").SubscriptionPlanRecord[],
+  };
+};
+
+/**
+ * Super Admin: Save or update subscription plan
+ */
+export const adminSavePlan = async (plan: {
+  id?: string;
+  name: string;
+  display_name: string;
+  description: string;
+  price_monthly: number;
+  price_yearly: number;
+  max_tables: number | null;
+  max_staff: number | null;
+  features: string[];
+  is_active: boolean;
+}): Promise<{
+  success: boolean;
+  error?: string;
+}> => {
+  const { data, error } = await supabase.rpc("admin_save_plan", {
+    p_id: plan.id || null,
+    p_name: plan.name,
+    p_display_name: plan.display_name,
+    p_description: plan.description,
+    p_price_monthly: plan.price_monthly,
+    p_price_yearly: plan.price_yearly,
+    p_max_tables: plan.max_tables,
+    p_max_staff: plan.max_staff,
+    p_features: plan.features,
+    p_is_active: plan.is_active,
+  });
+
+  if (error || !data) {
+    return {
+      success: false,
+      error: error?.message || "Failed to save plan",
+    };
+  }
+
+  return { success: true };
+};
+
+/**
+ * Super Admin: Toggle plan active / archive status
+ */
+export const adminTogglePlanStatus = async (
+  planId: string,
+  isActive: boolean
+): Promise<{
+  success: boolean;
+  error?: string;
+}> => {
+  const { data, error } = await supabase.rpc("admin_toggle_plan_status", {
+    p_plan_id: planId,
+    p_is_active: isActive,
+  });
+
+  if (error || !data) {
+    return {
+      success: false,
+      error: error?.message || "Failed to update plan status",
+    };
+  }
+
+  return { success: true };
+};
+

@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import {
   Store as StoreIcon,
   FileText,
-  ShoppingBag,
   DollarSign,
   TrendingUp,
   AlertCircle,
@@ -11,6 +10,7 @@ import {
   CreditCard,
   ChevronRight,
   CheckCircle,
+  ShieldAlert,
 } from "lucide-react";
 import {
   AreaChart,
@@ -23,13 +23,17 @@ import {
 import { Loading } from "../../components/ui";
 import { supabase } from "../../config/supabase";
 import { formatCurrency } from "../../utils/helpers";
+import { getPlatformBillingOverview } from "../../services/subscriptionService";
 
 interface PlatformStats {
   activeRestaurants: number;
   pendingRequests: number;
+  newRegistrationsThisWeek: number;
   totalOrders: number;
   todayRevenue: number;
   totalRevenue: number;
+  mrr: number;
+  arr: number;
   recentRequests: {
     id: string;
     restaurant_name: string;
@@ -39,6 +43,13 @@ interface PlatformStats {
     created_at: string;
   }[];
   growthTrends: { date: string; gmv: number; orders: number }[];
+  restaurantsAtRisk: {
+    restaurant_id: string;
+    restaurant_name: string;
+    plan_code: string;
+    days_left: number;
+    status: string;
+  }[];
 }
 
 const DashboardHome: React.FC = () => {
@@ -64,11 +75,13 @@ const DashboardHome: React.FC = () => {
       const [
         activeRestRes,
         pendingReqRes,
+        weekPendingRes,
         totalOrdersRes,
         todayOrdersRes,
         totalRevenueRes,
         recentPendingRes,
         weekOrdersRes,
+        billingRes,
       ] = await Promise.all([
         supabase
           .from("restaurants")
@@ -78,6 +91,10 @@ const DashboardHome: React.FC = () => {
           .from("registration_requests")
           .select("id", { count: "exact", head: true })
           .eq("status", "pending"),
+        supabase
+          .from("registration_requests")
+          .select("id", { count: "exact", head: true })
+          .gte("created_at", sevenDaysAgo.toISOString()),
         supabase
           .from("orders")
           .select("id", { count: "exact", head: true }),
@@ -99,6 +116,7 @@ const DashboardHome: React.FC = () => {
           .from("orders")
           .select("total, created_at, status")
           .gte("created_at", sevenDaysAgo.toISOString()),
+        getPlatformBillingOverview(),
       ]);
 
       const todayOrders = todayOrdersRes.data || [];
@@ -136,14 +154,49 @@ const DashboardHome: React.FC = () => {
         orders: val.orders,
       }));
 
+      const billingMetrics = billingRes.data?.metrics;
+      const mrr = billingMetrics?.total_mrr || 0;
+      const arr = billingMetrics?.total_arr || 0;
+
+      const now = Date.now();
+      const allSubs = billingRes.data?.subscriptions || [];
+      const restaurantsAtRisk = allSubs
+        .filter((s) => {
+          if (s.status === "suspended" || s.status === "cancelled") return false;
+          const expiryDate = new Date(
+            s.status === "trial" && s.trial_ends_at ? s.trial_ends_at : s.current_period_end
+          ).getTime();
+          const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+          return s.status === "grace_period" || daysLeft <= 7;
+        })
+        .map((s) => {
+          const expiryDate = new Date(
+            s.status === "trial" && s.trial_ends_at ? s.trial_ends_at : s.current_period_end
+          ).getTime();
+          const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+          return {
+            restaurant_id: s.restaurant_id,
+            restaurant_name: s.restaurant_name || "Restaurant",
+            plan_code: s.plan_code,
+            days_left: daysLeft,
+            status: s.status,
+          };
+        })
+        .sort((a, b) => a.days_left - b.days_left)
+        .slice(0, 5);
+
       setStats({
         activeRestaurants: activeRestRes.count || 0,
         pendingRequests: pendingReqRes.count || 0,
+        newRegistrationsThisWeek: weekPendingRes.count || 0,
         totalOrders: totalOrdersRes.count || 0,
         todayRevenue,
         totalRevenue,
+        mrr,
+        arr,
         recentRequests: recentPendingRes.data || [],
         growthTrends,
+        restaurantsAtRisk,
       });
     } catch (err) {
       console.error("Failed to load platform stats:", err);
@@ -162,6 +215,15 @@ const DashboardHome: React.FC = () => {
       value: stats.activeRestaurants,
       subtitle: "Live restaurants on platform",
       icon: StoreIcon,
+      color: "text-blue-600",
+      bgColor: "bg-blue-50",
+      borderColor: "border-blue-200/80",
+    },
+    {
+      title: "SaaS MRR",
+      value: formatCurrency(stats.mrr),
+      subtitle: `ARR: ${formatCurrency(stats.arr)}`,
+      icon: CreditCard,
       color: "text-emerald-600",
       bgColor: "bg-emerald-50",
       borderColor: "border-emerald-200/80",
@@ -169,7 +231,7 @@ const DashboardHome: React.FC = () => {
     {
       title: "Pending Onboarding",
       value: stats.pendingRequests,
-      subtitle: stats.pendingRequests > 0 ? "Requires admin approval" : "All requests verified",
+      subtitle: `${stats.newRegistrationsThisWeek} new this week`,
       icon: FileText,
       color: stats.pendingRequests > 0 ? "text-amber-600" : "text-slate-600",
       bgColor: stats.pendingRequests > 0 ? "bg-amber-50" : "bg-slate-50",
@@ -184,15 +246,6 @@ const DashboardHome: React.FC = () => {
       color: "text-indigo-600",
       bgColor: "bg-indigo-50",
       borderColor: "border-indigo-200/80",
-    },
-    {
-      title: "Total Food Orders",
-      value: stats.totalOrders.toLocaleString(),
-      subtitle: "Processed platform-wide",
-      icon: ShoppingBag,
-      color: "text-orange-600",
-      bgColor: "bg-orange-50",
-      borderColor: "border-orange-200/80",
     },
   ];
 
@@ -364,7 +417,7 @@ const DashboardHome: React.FC = () => {
         </div>
       </div>
 
-      {/* Grid: Pending Onboarding Applicants & Operational Modules */}
+      {/* Grid: Pending Onboarding Applicants & Restaurants At Risk */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Pending Applications */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between">
@@ -420,73 +473,139 @@ const DashboardHome: React.FC = () => {
           </div>
         </div>
 
-        {/* Operational Modules Shortcut Grid */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
-          <h3 className="text-base font-bold text-slate-900 mb-4">
-            Platform Operations & Tools
-          </h3>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <Link
-              to="/admin/requests"
-              className="p-4 rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all group"
-            >
-              <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 mb-2 group-hover:scale-105 transition-transform">
-                <FileText className="w-5 h-5" />
+        {/* Restaurants At Risk (Subscription Expiring in 7 Days or in Grace Period) */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                  <ShieldAlert className="w-4 h-4 text-amber-500" />
+                  <span>Restaurants At Risk</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Subscriptions expiring in 7 days or overdue in grace period
+                </p>
               </div>
-              <h4 className="font-bold text-xs text-slate-900 mb-0.5">
-                Onboarding Queue
-              </h4>
-              <p className="text-[11px] text-slate-500">
-                Verify licenses, approve restaurants, issue credentials.
-              </p>
-            </Link>
+              <Link
+                to="/admin/billing"
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center space-x-1"
+              >
+                <span>Billing Center</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
 
-            <Link
-              to="/admin/restaurants"
-              className="p-4 rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all group"
-            >
-              <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 mb-2 group-hover:scale-105 transition-transform">
-                <StoreIcon className="w-5 h-5" />
+            {stats.restaurantsAtRisk.length === 0 ? (
+              <div className="text-center py-10 text-slate-400 text-xs">
+                <CheckCircle className="w-8 h-8 mx-auto mb-2 text-emerald-500 opacity-60" />
+                <p>All tenant subscriptions are in good standing. No accounts at risk.</p>
               </div>
-              <h4 className="font-bold text-xs text-slate-900 mb-0.5">
-                Tenant Management
-              </h4>
-              <p className="text-[11px] text-slate-500">
-                View branches, suspend/activate, inspect menus.
-              </p>
-            </Link>
-
-            <Link
-              to="/admin/billing"
-              className="p-4 rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all group"
-            >
-              <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 mb-2 group-hover:scale-105 transition-transform">
-                <CreditCard className="w-5 h-5" />
+            ) : (
+              <div className="space-y-3">
+                {stats.restaurantsAtRisk.map((risk) => (
+                  <div
+                    key={risk.restaurant_id}
+                    className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <p className="font-bold text-xs text-slate-900">
+                          {risk.restaurant_name}
+                        </p>
+                        <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">
+                          {risk.plan_code}
+                        </span>
+                      </div>
+                      <p className="text-[11px] mt-0.5 font-medium">
+                        {risk.status === "grace_period" ? (
+                          <span className="text-rose-600 font-bold">⚠️ Overdue — In Grace Period</span>
+                        ) : risk.days_left <= 0 ? (
+                          <span className="text-rose-600 font-bold">Expires today</span>
+                        ) : (
+                          <span className="text-amber-600">Expires in {risk.days_left} day{risk.days_left > 1 ? "s" : ""}</span>
+                        )}
+                      </p>
+                    </div>
+                    <Link
+                      to="/admin/billing"
+                      className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold text-[11px] transition-colors"
+                    >
+                      Manage
+                    </Link>
+                  </div>
+                ))}
               </div>
-              <h4 className="font-bold text-xs text-slate-900 mb-0.5">
-                SaaS Subscriptions
-              </h4>
-              <p className="text-[11px] text-slate-500">
-                Verify bKash TrxIDs, unlock accounts, MRR tracking.
-              </p>
-            </Link>
-
-            <Link
-              to="/admin/analytics"
-              className="p-4 rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all group"
-            >
-              <div className="w-9 h-9 rounded-lg bg-violet-50 border border-violet-200 flex items-center justify-center text-violet-600 mb-2 group-hover:scale-105 transition-transform">
-                <TrendingUp className="w-5 h-5" />
-              </div>
-              <h4 className="font-bold text-xs text-slate-900 mb-0.5">
-                Platform Analytics
-              </h4>
-              <p className="text-[11px] text-slate-500">
-                Leaderboards, regional breakdown, GMV trends.
-              </p>
-            </Link>
+            )}
           </div>
+        </div>
+      </div>
+
+      {/* Operational Modules Shortcut Grid */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+        <h3 className="text-base font-bold text-slate-900 mb-4">
+          Platform Operations & Quick Navigation
+        </h3>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          <Link
+            to="/admin/requests"
+            className="p-4 rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all group"
+          >
+            <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 mb-2 group-hover:scale-105 transition-transform">
+              <FileText className="w-5 h-5" />
+            </div>
+            <h4 className="font-bold text-xs text-slate-900 mb-0.5">
+              Onboarding Queue
+            </h4>
+            <p className="text-[11px] text-slate-500">
+              Verify licenses, approve restaurants, issue credentials.
+            </p>
+          </Link>
+
+          <Link
+            to="/admin/restaurants"
+            className="p-4 rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all group"
+          >
+            <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 mb-2 group-hover:scale-105 transition-transform">
+              <StoreIcon className="w-5 h-5" />
+            </div>
+            <h4 className="font-bold text-xs text-slate-900 mb-0.5">
+              Tenant Management
+            </h4>
+            <p className="text-[11px] text-slate-500">
+              View branches, suspend/activate, inspect menus.
+            </p>
+          </Link>
+
+          <Link
+            to="/admin/billing"
+            className="p-4 rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all group"
+          >
+            <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 mb-2 group-hover:scale-105 transition-transform">
+              <CreditCard className="w-5 h-5" />
+            </div>
+            <h4 className="font-bold text-xs text-slate-900 mb-0.5">
+              SaaS Subscriptions
+            </h4>
+            <p className="text-[11px] text-slate-500">
+              Plans, verify bKash TrxIDs, unlock accounts, MRR tracking.
+            </p>
+          </Link>
+
+          <Link
+            to="/admin/analytics"
+            className="p-4 rounded-xl border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all group"
+          >
+            <div className="w-9 h-9 rounded-lg bg-violet-50 border border-violet-200 flex items-center justify-center text-violet-600 mb-2 group-hover:scale-105 transition-transform">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <h4 className="font-bold text-xs text-slate-900 mb-0.5">
+              Platform Analytics
+            </h4>
+            <p className="text-[11px] text-slate-500">
+              Leaderboards, regional breakdown, GMV trends.
+            </p>
+          </Link>
         </div>
       </div>
     </div>

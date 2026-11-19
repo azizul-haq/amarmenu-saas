@@ -20,11 +20,13 @@ import type { Order, OrderItem } from "../../config/supabase";
 import { playSound } from "../../utils/helpers";
 import { KOTReceipt } from "../../components/restaurant/KOTReceipt";
 import { Loading, Button } from "../../components/ui";
+import { useAuth } from "../../context/AuthContext";
 
 const KitchenKDS: React.FC = () => {
+  const { restaurant: authRestaurant, restaurantId: authRestaurantId } = useAuth();
   const [kitchenOrders, setKitchenOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [restaurantName, setRestaurantName] = useState("Kitchen");
+  const [restaurantName, setRestaurantName] = useState(authRestaurant?.name || "Kitchen");
   const [orderTypeFilter, setOrderTypeFilter] = useState<"all" | "table" | "counter">("all");
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -33,17 +35,31 @@ const KitchenKDS: React.FC = () => {
   const prevOrdersCountRef = useRef<number>(0);
 
   useEffect(() => {
-    const currentRestaurant = localStorage.getItem("current_restaurant");
-    if (!currentRestaurant) {
+    let targetRestaurantId = authRestaurantId || authRestaurant?.id || "";
+    let targetName = authRestaurant?.name || "";
+
+    if (!targetRestaurantId) {
+      const currentRestaurant = localStorage.getItem("current_restaurant");
+      if (currentRestaurant) {
+        try {
+          const parsed = JSON.parse(currentRestaurant);
+          targetRestaurantId = parsed.id || "";
+          if (parsed.name) targetName = parsed.name;
+        } catch {
+          // fallback
+        }
+      }
+    }
+
+    if (!targetRestaurantId) {
       setLoading(false);
       return;
     }
 
-    const { id: restaurantId, name } = JSON.parse(currentRestaurant);
-    if (name) setRestaurantName(name);
+    if (targetName) setRestaurantName(targetName);
 
     // Subscribe to active kitchen orders
-    const subscription = subscribeToKitchenOrders(restaurantId, (orders) => {
+    const subscription = subscribeToKitchenOrders(targetRestaurantId, (orders) => {
       // Check if new tickets arrived
       const newAcceptedCount = orders.filter((o) => o.status === "accepted").length;
       if (soundEnabled && newAcceptedCount > prevOrdersCountRef.current && prevOrdersCountRef.current !== 0) {

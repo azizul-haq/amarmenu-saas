@@ -3,32 +3,38 @@ import { Download, QrCode as QrCodeIcon, ExternalLink } from "lucide-react";
 import { Card, Button, Loading, Alert } from "../../components/ui";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../../config/supabase";
+import { useAuth } from "../../context/AuthContext";
 import type { Restaurant } from "../../config/supabase";
 
 const RestaurantSettings: React.FC = () => {
-  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { restaurant: authRestaurant, restaurantId } = useAuth();
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(authRestaurant || null);
+  const [loading, setLoading] = useState(!authRestaurant);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (authRestaurant) {
+      setRestaurant(authRestaurant);
+      setLoading(false);
+    }
+
     const fetchRestaurant = async () => {
       try {
-        const user = JSON.parse(localStorage.getItem("user") || "{}");
-        if (!user.restaurant_id) {
-          setError("Restaurant ID not found");
-          setLoading(false);
-          return;
+        const effectiveId = restaurantId || authRestaurant?.id;
+        if (!effectiveId) {
+          const user = JSON.parse(localStorage.getItem("user") || "{}");
+          if (!user.restaurant_id) {
+            setError("Restaurant ID not found");
+            setLoading(false);
+            return;
+          }
         }
 
-        const { data, error: fetchError } = await supabase
-          .from("restaurants")
-          .select("*")
-          .eq("id", user.restaurant_id)
-          .single();
+        const { data, error: fetchError } = await supabase.rpc("get_my_restaurant");
 
         if (fetchError) throw fetchError;
-        setRestaurant(data);
-      } catch (err) {
+        setRestaurant(data as Restaurant);
+      } catch {
         setError("Failed to load restaurant details");
       } finally {
         setLoading(false);
@@ -36,7 +42,7 @@ const RestaurantSettings: React.FC = () => {
     };
 
     fetchRestaurant();
-  }, []);
+  }, [authRestaurant, restaurantId]);
 
   const downloadQRCode = () => {
     if (!restaurant) return;

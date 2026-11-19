@@ -4,15 +4,18 @@ import {
   UserPlus,
   ShieldCheck,
   CheckCircle2,
-  XCircle,
   RefreshCw,
-  Trash2,
   Edit2,
+  KeyRound,
+  Copy,
+  Check,
+  Ban,
 } from "lucide-react";
 import { Card, Button, Input, Select, Modal, Alert, Loading } from "../../components/ui";
 import { supabase } from "../../config/supabase";
 import { useAuth } from "../../context/AuthContext";
 import type { RestaurantStaff } from "../../config/supabase";
+import { copyToClipboard as copyTextToClipboard } from "../../utils/helpers";
 
 export const StaffPage: React.FC = () => {
   const { user, restaurant, role: currentUserRole } = useAuth();
@@ -30,6 +33,15 @@ export const StaffPage: React.FC = () => {
   const [phone, setPhone] = useState("");
   const [staffRole, setStaffRole] = useState<string>("waiter");
 
+  // Temporary password modal state (for newly invited or password reset staff)
+  const [tempPasswordModal, setTempPasswordModal] = useState<{
+    isOpen: boolean;
+    name: string;
+    phone: string;
+    tempPassword: string;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
+
   const isOwner = currentUserRole === "owner";
 
   const fetchStaff = useCallback(async () => {
@@ -39,7 +51,7 @@ export const StaffPage: React.FC = () => {
     try {
       const { data, error: fetchErr } = await supabase
         .from("restaurant_staff")
-        .select("*")
+        .select("id, auth_user_id, restaurant_id, full_name, phone, email, role, is_active, created_at, updated_at")
         .eq("restaurant_id", restaurant.id)
         .order("created_at", { ascending: true });
 
@@ -84,34 +96,49 @@ export const StaffPage: React.FC = () => {
 
     try {
       if (editingStaff) {
-        // Update existing staff
-        const { error: updateErr } = await supabase
-          .from("restaurant_staff")
-          .update({
+        // Update staff via Edge Function
+        const { data, error: fnError } = await supabase.functions.invoke("invite-staff", {
+          body: {
+            action: "update",
+            staff_id: editingStaff.id,
             full_name: fullName.trim(),
-            phone: phone.trim() || null,
+            phone: phone.trim() || undefined,
             role: staffRole,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", editingStaff.id);
+          },
+        });
 
-        if (updateErr) throw updateErr;
+        if (fnError || data?.error) {
+          throw new Error(fnError?.message || data?.error || "Failed to update staff member");
+        }
+
         setSuccess(`Updated ${fullName.trim()} successfully.`);
       } else {
-        // Insert new staff member
-        const { error: insertErr } = await supabase
-          .from("restaurant_staff")
-          .insert({
-            restaurant_id: restaurant.id,
+        // Invite new staff via Edge Function
+        const { data, error: fnError } = await supabase.functions.invoke("invite-staff", {
+          body: {
+            action: "invite",
             full_name: fullName.trim(),
-            email: email.trim().toLowerCase() || null,
-            phone: phone.trim() || null,
+            phone: phone.trim(),
+            email: email.trim() || undefined,
             role: staffRole,
-            is_active: true,
-          });
+          },
+        });
 
-        if (insertErr) throw insertErr;
-        setSuccess(`Added new staff member ${fullName.trim()} as ${staffRole}.`);
+        if (fnError || data?.error) {
+          throw new Error(fnError?.message || data?.error || "Failed to invite staff member");
+        }
+
+        setSuccess(`Invited ${fullName.trim()} as ${staffRole}.`);
+
+        // Display temporary password to owner
+        if (data.tempPassword) {
+          setTempPasswordModal({
+            isOpen: true,
+            name: fullName.trim(),
+            phone: phone.trim(),
+            tempPassword: data.tempPassword,
+          });
+        }
       }
 
       setIsModalOpen(false);
@@ -135,16 +162,22 @@ export const StaffPage: React.FC = () => {
     setSuccess(null);
 
     try {
-      const { error: toggleErr } = await supabase
-        .from("restaurant_staff")
-        .update({
-          is_active: !staff.is_active,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", staff.id);
+      const newActive = !staff.is_active;
+      const { data, error: fnError } = await supabase.functions.invoke("invite-staff", {
+        body: {
+          action: "toggle_active",
+          staff_id: staff.id,
+          is_active: newActive,
+        },
+      });
 
-      if (toggleErr) throw toggleErr;
-      setSuccess(`${staff.full_name} is now ${!staff.is_active ? "Active" : "Inactive"}.`);
+      if (fnError || data?.error) {
+        throw new Error(fnError?.message || data?.error || "Failed to update staff status");
+      }
+
+      setSuccess(
+        `${staff.full_name} is now ${newActive ? "Active" : "Inactive (Auth access revoked)"}.`
+      );
       await fetchStaff();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to update staff status";
@@ -154,13 +187,13 @@ export const StaffPage: React.FC = () => {
     }
   };
 
-  const handleDeleteStaff = async (staff: RestaurantStaff) => {
-    if (staff.auth_user_id === user?.id) {
-      setError("Safety rule: You cannot delete your own staff record.");
+  const handleResetPassword = async (staff: RestaurantStaff) => {
+    if (staff.role === "owner") {
+      setError("Password cannot be reset for an owner account via this action.");
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to remove ${staff.full_name}?`)) {
+    if (!window.confirm(`Generate a new temporary password for ${staff.full_name}?`)) {
       return;
     }
 
@@ -169,19 +202,38 @@ export const StaffPage: React.FC = () => {
     setSuccess(null);
 
     try {
-      const { error: delErr } = await supabase
-        .from("restaurant_staff")
-        .delete()
-        .eq("id", staff.id);
+      const { data, error: fnError } = await supabase.functions.invoke("invite-staff", {
+        body: {
+          action: "reset_password",
+          staff_id: staff.id,
+        },
+      });
 
-      if (delErr) throw delErr;
-      setSuccess(`Removed ${staff.full_name} from staff.`);
-      await fetchStaff();
+      if (fnError || data?.error) {
+        throw new Error(fnError?.message || data?.error || "Failed to reset password");
+      }
+
+      if (data.tempPassword) {
+        setTempPasswordModal({
+          isOpen: true,
+          name: staff.full_name,
+          phone: staff.phone || "",
+          tempPassword: data.tempPassword,
+        });
+      }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to remove staff member";
+      const message = err instanceof Error ? err.message : "Failed to reset staff password";
       setError(message);
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const copyToClipboard = async (text: string) => {
+    const success = await copyTextToClipboard(text);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -323,9 +375,9 @@ export const StaffPage: React.FC = () => {
                           Active
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400">
-                          <XCircle className="w-3.5 h-3.5" />
-                          Inactive
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-rose-600">
+                          <Ban className="w-3.5 h-3.5" />
+                          Deactivated
                         </span>
                       )}
                     </td>
@@ -341,20 +393,34 @@ export const StaffPage: React.FC = () => {
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleToggleStatus(member)}
-                            disabled={actionLoading || isCurrentUser}
-                            className="p-1 text-slate-500 hover:text-amber-600 disabled:opacity-30 transition-colors"
-                            title={isCurrentUser ? "Cannot change own status" : "Toggle Active"}
+                            onClick={() => handleResetPassword(member)}
+                            disabled={actionLoading || member.role === "owner"}
+                            className="p-1 text-slate-500 hover:text-purple-600 disabled:opacity-30 transition-colors"
+                            title={
+                              member.role === "owner"
+                                ? "Cannot reset owner password"
+                                : "Reset Temp Password"
+                            }
                           >
-                            <RefreshCw className="w-4 h-4" />
+                            <KeyRound className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleDeleteStaff(member)}
+                            onClick={() => handleToggleStatus(member)}
                             disabled={actionLoading || isCurrentUser}
-                            className="p-1 text-slate-500 hover:text-red-600 disabled:opacity-30 transition-colors"
-                            title={isCurrentUser ? "Cannot delete own record" : "Remove Staff"}
+                            className={`p-1 disabled:opacity-30 transition-colors ${
+                              member.is_active
+                                ? "text-slate-500 hover:text-rose-600"
+                                : "text-emerald-600 hover:text-emerald-700"
+                            }`}
+                            title={
+                              isCurrentUser
+                                ? "Cannot change own status"
+                                : member.is_active
+                                ? "Deactivate (Revoke Access)"
+                                : "Reactivate Staff"
+                            }
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <RefreshCw className="w-4 h-4" />
                           </button>
                         </div>
                       ) : (
@@ -373,7 +439,7 @@ export const StaffPage: React.FC = () => {
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={editingStaff ? `Edit Role: ${editingStaff.full_name}` : "Add Restaurant Staff Member"}
+        title={editingStaff ? `Edit Role: ${editingStaff.full_name}` : "Invite Restaurant Staff Member"}
       >
         <form onSubmit={handleSaveStaff} className="space-y-4">
           <Input
@@ -391,7 +457,7 @@ export const StaffPage: React.FC = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="e.g. rahim@restaurant.com"
-              helperText="Optional: used to link login account"
+              helperText="Optional: if left blank, staff can log in using their phone number"
             />
           )}
 
@@ -400,6 +466,8 @@ export const StaffPage: React.FC = () => {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="e.g. 017XXXXXXXX"
+            helperText="11-digit Bangladeshi mobile number (e.g. 01712345678)"
+            required={!editingStaff}
           />
 
           <Select
@@ -407,7 +475,6 @@ export const StaffPage: React.FC = () => {
             value={staffRole}
             onChange={(e) => setStaffRole(e.target.value)}
             options={[
-              { value: "owner", label: "Owner — Full administrative authority" },
               { value: "manager", label: "Manager — Operations, reports & discounts" },
               { value: "cashier", label: "Cashier — Billing, cash shifts & orders" },
               { value: "kitchen", label: "Kitchen — KDS preparation & availability" },
@@ -425,11 +492,61 @@ export const StaffPage: React.FC = () => {
               Cancel
             </Button>
             <Button type="submit" loading={actionLoading}>
-              {editingStaff ? "Save Role Changes" : "Create Staff Record"}
+              {editingStaff ? "Save Role Changes" : "Send Invite & Generate Password"}
             </Button>
           </div>
         </form>
       </Modal>
+
+      {/* Temporary Password Display Modal */}
+      {tempPasswordModal && (
+        <Modal
+          isOpen={tempPasswordModal.isOpen}
+          onClose={() => setTempPasswordModal(null)}
+          title="Staff Temporary Password"
+        >
+          <div className="space-y-4">
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900">
+              <p className="font-semibold">Share this one-time temporary password with {tempPasswordModal.name}:</p>
+              <p className="text-xs text-amber-700 mt-1">
+                They will be forced to choose their own secure password immediately upon first login.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                Login Phone / Identifier
+              </label>
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded font-mono text-sm text-slate-800">
+                {tempPasswordModal.phone || "—"}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                Temporary Password
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 p-2.5 bg-slate-100 border border-slate-300 rounded font-mono text-lg font-bold text-purple-700 tracking-wider">
+                  {tempPasswordModal.tempPassword}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => copyToClipboard(tempPasswordModal.tempPassword)}
+                  icon={copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                >
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="pt-4 flex justify-end border-t border-slate-100">
+              <Button onClick={() => setTempPasswordModal(null)}>Done</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

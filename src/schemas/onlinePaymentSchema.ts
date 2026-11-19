@@ -31,6 +31,7 @@ export interface PaymentInitiationResult {
   success: boolean;
   session_id: string;
   tran_id: string;
+  polling_token?: string;
   order_id: string;
   order_number: string;
   amount: number;

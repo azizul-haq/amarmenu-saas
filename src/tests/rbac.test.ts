@@ -11,7 +11,6 @@ describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
   let kitchenClient: SupabaseClient;
   let waiterClient: SupabaseClient;
 
-  let ownerUserId: string;
 
   let ownerStaffId: string;
   let managerStaffId: string;
@@ -123,7 +122,6 @@ describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
     ]);
 
     ownerClient = ownerRes.client;
-    ownerUserId = ownerRes.userId;
     ownerStaffId = ownerRes.staffId;
 
     managerClient = managerRes.client;
@@ -135,15 +133,15 @@ describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
 
     waiterClient = waiterRes.client;
 
-    // Set Manager PIN to '1234'
+    // Set Manager PIN to '4827'
     await Promise.all([
       serviceRole.rpc("set_staff_manager_pin", {
         p_staff_id: ownerStaffId,
-        p_new_pin: "1234",
+        p_new_pin: "4827",
       }),
       serviceRole.rpc("set_staff_manager_pin", {
         p_staff_id: managerStaffId,
-        p_new_pin: "1234",
+        p_new_pin: "4827",
       }),
     ]);
   }, 35000);
@@ -335,7 +333,7 @@ describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
       expect(error).not.toBeNull();
       expect(error!.code).toBe("42501");
       expect(error!.message).toContain("caller cannot settle bills");
-    });
+    }, 20000);
 
     it("DENIES Kitchen from settling bills (42501)", async () => {
       const orderId = await placeOrderInRestA();
@@ -417,7 +415,7 @@ describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
 
       const { data, error } = await managerClient.rpc("void_order_with_pin", {
         p_order_id: orderId,
-        p_manager_pin: "1234",
+        p_manager_pin: "4827",
         p_reason: "Customer cancelled table",
       });
 
@@ -441,7 +439,7 @@ describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
       // Manager attempts to void settled bill
       const { error } = await managerClient.rpc("void_order_with_pin", {
         p_order_id: orderId,
-        p_manager_pin: "1234",
+        p_manager_pin: "4827",
         p_reason: "Manager attempts to void paid bill",
       });
 
@@ -466,7 +464,7 @@ describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
       // Owner voids settled bill
       const { data, error } = await ownerClient.rpc("void_order_with_pin", {
         p_order_id: orderId,
-        p_manager_pin: "1234",
+        p_manager_pin: "4827",
         p_reason: "Owner legitimate billing reversal",
       });
 
@@ -530,28 +528,42 @@ describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
       expect(error!.code).toBe("42501");
     });
 
-    it("blocks a user from changing their own role (P0001)", async () => {
-      // Owner tries to change their own role to waiter
+    it("blocks a user from changing their own role (42501)", async () => {
+      // In Chunk 20d, direct update is revoked on restaurant_staff from authenticated (42501)
       const { error } = await ownerClient
         .from("restaurant_staff")
         .update({ role: "waiter" })
         .eq("id", ownerStaffId);
 
       expect(error).not.toBeNull();
-      expect(error!.message).toContain("Users cannot change their own role");
+      expect(error!.code).toBe("42501");
+
+      // Verify DB role is completely unchanged
+      const verify = await serviceRole.query<{ role: string }>(
+        `SELECT role FROM restaurant_staff WHERE id = $1`,
+        [ownerStaffId]
+      );
+      expect(verify[0].role).toBe("owner");
     });
 
-    it("blocks a user from deactivating their own active status (P0001)", async () => {
+    it("blocks a user from deactivating their own active status (42501)", async () => {
       const { error } = await ownerClient
         .from("restaurant_staff")
         .update({ is_active: false })
         .eq("id", ownerStaffId);
 
       expect(error).not.toBeNull();
-      expect(error!.message).toContain("Users cannot change their own active status");
+      expect(error!.code).toBe("42501");
+
+      // Verify DB status is completely unchanged
+      const verify = await serviceRole.query<{ is_active: boolean }>(
+        `SELECT is_active FROM restaurant_staff WHERE id = $1`,
+        [ownerStaffId]
+      );
+      expect(verify[0].is_active).toBe(true);
     });
 
-    it("ensures a restaurant must always keep at least one active owner (P0001)", async () => {
+    it("ensures a restaurant must always keep at least one active owner and enforces 42501 direct write block", async () => {
       // Create a temporary secondary owner
       const tempOwnerRes = await serviceRole.query<{ id: string }>(
         `INSERT INTO restaurant_staff (restaurant_id, full_name, email, role, is_active)
@@ -561,33 +573,66 @@ describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
       );
       const tempOwnerId = tempOwnerRes[0].id;
 
-      // Primary owner demotes secondary owner -> Succeeds (since primary owner remains)
+      // Direct update is blocked by table revokes in Chunk 20d (exact 42501)
       const { error: demoteErr } = await ownerClient
         .from("restaurant_staff")
         .update({ role: "manager" })
         .eq("id", tempOwnerId);
-      expect(demoteErr).toBeNull();
+      expect(demoteErr?.code).toBe("42501");
 
-      // Now attempt to demote the only remaining active owner
-      let demoteLastOwnerAttempt: string | null = null;
+      // Verify via service role that role in DB is strictly unchanged
+      const verifyTempOwner = await serviceRole.query<{ role: string }>(
+        `SELECT role FROM restaurant_staff WHERE id = $1`,
+        [tempOwnerId]
+      );
+      expect(verifyTempOwner[0].role).toBe("owner");
+
+      // Create a temporary isolated restaurant with a sole owner to test the DB trigger
+      const testRest = await serviceRole.adminQuery<{ id: string }>(
+        `INSERT INTO restaurants (name, slug, phone, email, subscription_plan, status, is_active)
+         VALUES ('Sole Owner Test', 'sole-owner-test-${Date.now()}', '+8801700000000', 'sole_${Date.now()}@test.com', 'starter', 'active', true)
+         RETURNING id`
+      );
+      const soleRestId = testRest[0].id;
+
+      const soleStaff = await serviceRole.query<{ id: string }>(
+        `INSERT INTO restaurant_staff (restaurant_id, full_name, email, role, is_active)
+         VALUES ($1, 'Sole Owner', $2, 'owner', true)
+         RETURNING id;`,
+        [soleRestId, `sole_${Date.now()}@test.com`]
+      );
+      const soleStaffId = soleStaff[0].id;
+
+      // Now attempt to demote the sole remaining active owner via DB trigger
+      let demoteLastOwnerAttempt = "";
+      let demoteErrCode = "";
       try {
         await serviceRole.adminQuery(
-          `DO $$
-           BEGIN
-             PERFORM set_config('role', 'authenticated', true);
-             PERFORM set_config('request.jwt.claims', '{"sub":"${ownerUserId}","role":"authenticated"}', true);
-             UPDATE restaurant_staff SET role = 'manager' WHERE id = '${ownerStaffId}';
-           END;
-           $$;`
+          `UPDATE restaurant_staff SET role = 'manager' WHERE id = '${soleStaffId}';`
         );
       } catch (err: unknown) {
-        demoteLastOwnerAttempt = err instanceof Error ? err.message : String(err);
+        demoteErrCode = (err as any)?.code || "";
+        demoteLastOwnerAttempt =
+          (err as any)?.message ||
+          (err as any)?.details ||
+          (typeof err === "string" ? err : JSON.stringify(err));
       }
 
-      expect(demoteLastOwnerAttempt).toMatch(/always keep at least one active owner|cannot change their own role/i);
+      expect(demoteLastOwnerAttempt).toMatch(/always keep at least one active owner/i);
+      expect(demoteErrCode || demoteLastOwnerAttempt).toMatch(/P0001/);
 
-      // Clean up temp owner
-      await serviceRole.query(`DELETE FROM restaurant_staff WHERE id = $1`, [tempOwnerId]);
+      // Verify soleStaffId is strictly unchanged in DB
+      const verifySole = await serviceRole.query<{ role: string }>(
+        `SELECT role FROM restaurant_staff WHERE id = $1`,
+        [soleStaffId]
+      );
+      expect(verifySole[0].role).toBe("owner");
+
+      // Clean up isolated test restaurant & temp owner
+      await serviceRole.adminQuery(`ALTER TABLE restaurant_staff DISABLE TRIGGER USER;`);
+      await serviceRole.adminQuery(`DELETE FROM restaurants WHERE id = '${soleRestId}';`);
+      await serviceRole.adminQuery(`DELETE FROM restaurant_staff WHERE id = '${tempOwnerId}';`);
+      await serviceRole.adminQuery(`ALTER TABLE restaurant_staff ENABLE TRIGGER USER;`);
     });
   });
 
@@ -604,13 +649,22 @@ describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
     });
 
     it("denies Restaurant A staff from reading staff of Restaurant B", async () => {
+      // 1. Reading safe columns returns 0 rows via RLS
       const { data, error } = await managerClient
         .from("restaurant_staff")
-        .select("*")
+        .select("id, full_name, role, is_active")
         .eq("restaurant_id", REST_B_ID);
 
       expect(error).toBeNull();
       expect(data).toEqual([]);
+
+      // 2. Reading hidden columns (manager_pin_hash) is blocked with 42501
+      const { error: hiddenErr } = await managerClient
+        .from("restaurant_staff")
+        .select("id, manager_pin_hash")
+        .eq("restaurant_id", REST_B_ID);
+      expect(hiddenErr).not.toBeNull();
+      expect(hiddenErr!.code).toBe("42501");
     });
   });
 });

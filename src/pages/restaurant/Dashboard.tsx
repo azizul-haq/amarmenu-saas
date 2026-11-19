@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   useNavigate,
   Routes,
@@ -27,10 +27,15 @@ import {
   Menu as MenuIcon,
   X,
   Users,
+  AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { ProtectedRoute } from "../../components/auth/ProtectedRoute";
 import { supabase } from "../../config/supabase";
+import { getTenantSubscriptionDetails } from "../../services/subscriptionService";
+import type { TenantSubscriptionRecord } from "../../schemas/subscriptionSchema";
+import { SubmitPaymentModal } from "../../components/restaurant/SubmitPaymentModal";
 import RestaurantHome from "./RestaurantHome";
 import Orders from "./Orders";
 import KitchenKDS from "./KitchenKDS";
@@ -68,6 +73,38 @@ const RestaurantDashboard: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pendingOrdersCount, setPendingOrdersCount] = useState<number>(0);
   const [currentTime, setCurrentTime] = useState<string>("");
+  const [subscription, setSubscription] = useState<TenantSubscriptionRecord | null>(null);
+  const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
+
+  const fetchSubscription = useCallback(async () => {
+    if (!restaurant?.id) return;
+    try {
+      const res = await getTenantSubscriptionDetails(restaurant.id);
+      if (res.success && res.subscription) {
+        setSubscription(res.subscription);
+      }
+    } catch {
+      // Graceful fallback if subscription fails to load
+    }
+  }, [restaurant?.id]);
+
+  useEffect(() => {
+    fetchSubscription();
+  }, [fetchSubscription]);
+
+  const isSuspended =
+    restaurant?.status === "blocked" ||
+    restaurant?.status === "suspended" ||
+    subscription?.status === "suspended";
+
+  const isSoftLocked = role !== "super_admin" && isSuspended;
+
+  const isGracePeriod =
+    role !== "super_admin" &&
+    !isSoftLocked &&
+    (subscription?.status === "grace_period" ||
+      (subscription?.current_period_end &&
+        new Date(subscription.current_period_end).getTime() < Date.now()));
 
   // Persist sidebar collapsed state
   const toggleCollapse = () => {
@@ -474,104 +511,188 @@ const RestaurantDashboard: React.FC = () => {
           </div>
         </header>
 
+        {/* Grace Period Warning Banner */}
+        {isGracePeriod && (
+          <div className="bg-amber-500 text-white px-4 py-2.5 flex items-center justify-between text-xs sm:text-sm font-medium shadow-xs">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 animate-bounce" />
+              <span>
+                <strong>Subscription Expired:</strong> You are currently in the 7-day grace period. Please submit your renewal payment to keep your management dashboard active.
+              </span>
+            </div>
+            <button
+              onClick={() => setShowPaymentModal(true)}
+              className="ml-3 px-3 py-1 bg-white text-amber-800 rounded-lg font-bold text-xs hover:bg-amber-50 transition-colors shadow-2xs whitespace-nowrap"
+            >
+              Renew Now
+            </button>
+          </div>
+        )}
+
+        {/* Soft Suspension Banner on Subscription Page */}
+        {isSoftLocked && (
+          <div className="bg-rose-600 text-white px-4 py-2.5 flex items-center justify-between text-xs sm:text-sm font-medium shadow-xs">
+            <div className="flex items-center space-x-2">
+              <ShieldAlert className="w-4 h-4 flex-shrink-0" />
+              <span>
+                <strong>Dashboard Soft Suspended:</strong> An overdue subscription payment is required. Note: Customer QR menu ordering remains active for diners.
+              </span>
+            </div>
+            <button
+              onClick={() => setShowPaymentModal(true)}
+              className="ml-3 px-3 py-1 bg-white text-rose-800 rounded-lg font-bold text-xs hover:bg-rose-50 transition-colors shadow-2xs whitespace-nowrap"
+            >
+              Pay with bKash/Nagad
+            </button>
+          </div>
+        )}
+
         {/* Dynamic Route Content Canvas */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-          <Routes>
-            <Route
-              index
-              element={
-                role === "super_admin" || hasPermission("view_reports") ? (
-                  <RestaurantHome />
-                ) : role === "kitchen" ? (
-                  <Navigate to="/restaurant/kitchen" replace />
-                ) : (
-                  <Navigate to="/restaurant/orders" replace />
-                )
-              }
-            />
-            <Route path="orders" element={<Orders />} />
-            <Route
-              path="shifts"
-              element={
-                <ProtectedRoute requiredPermission="manage_shifts" fallbackPath="/restaurant/orders">
-                  <ShiftsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="kitchen"
-              element={
-                <ProtectedRoute requiredPermission="update_kitchen_status" fallbackPath="/restaurant/orders">
-                  <KitchenKDS />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="menu"
-              element={
-                <ProtectedRoute
-                  requiredPermissions={["edit_menu", "toggle_availability"]}
-                  fallbackPath="/restaurant/orders"
+          {isSoftLocked && location.pathname !== "/restaurant/subscription" ? (
+            <div className="max-w-xl mx-auto my-12 bg-white rounded-2xl border border-rose-200 p-8 shadow-sm text-center">
+              <div className="w-16 h-16 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-center mx-auto mb-4 text-rose-600 shadow-xs">
+                <ShieldAlert className="w-8 h-8" />
+              </div>
+              <h2 className="text-xl font-black text-slate-900 mb-2">
+                Restaurant Management Suspended
+              </h2>
+              <p className="text-sm text-slate-600 mb-5 leading-relaxed">
+                Your restaurant management dashboard is temporarily locked due to an overdue subscription payment.
+              </p>
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-xs text-emerald-800 font-medium mb-6 flex items-center justify-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                <span>
+                  <strong>Notice:</strong> Your customer-facing QR menu remains online and diners can still place orders.
+                </span>
+              </div>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                <button
+                  onClick={() => setShowPaymentModal(true)}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-2"
                 >
-                  <Menu />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="tables"
-              element={
-                <ProtectedRoute
-                  requiredPermissions={["confirm_order", "settle_bill"]}
-                  fallbackPath="/restaurant/orders"
+                  <CreditCard className="w-4 h-4" />
+                  <span>Pay with bKash / Nagad</span>
+                </button>
+                <Link
+                  to="/restaurant/subscription"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors"
                 >
-                  <Tables />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="reports"
-              element={
-                <ProtectedRoute requiredPermission="view_reports" fallbackPath="/restaurant/orders">
-                  <Reports />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="audit"
-              element={
-                <ProtectedRoute requiredPermission="view_reports" fallbackPath="/restaurant/orders">
-                  <AuditLogsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="staff"
-              element={
-                <ProtectedRoute requiredPermission="manage_staff" fallbackPath="/restaurant/orders">
-                  <StaffPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="subscription"
-              element={
-                <ProtectedRoute requiredPermission="manage_subscription" fallbackPath="/restaurant/orders">
-                  <SubscriptionPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="settings"
-              element={
-                <ProtectedRoute requiredPermission="change_settings" fallbackPath="/restaurant/orders">
-                  <RestaurantSettings />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="*" element={<Navigate to="/restaurant" replace />} />
-          </Routes>
+                  View Subscription & Invoices
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <Routes>
+              <Route
+                index
+                element={
+                  role === "super_admin" || hasPermission("view_reports") ? (
+                    <RestaurantHome />
+                  ) : role === "kitchen" ? (
+                    <Navigate to="/restaurant/kitchen" replace />
+                  ) : (
+                    <Navigate to="/restaurant/orders" replace />
+                  )
+                }
+              />
+              <Route path="orders" element={<Orders />} />
+              <Route
+                path="shifts"
+                element={
+                  <ProtectedRoute requiredPermission="manage_shifts" fallbackPath="/restaurant/orders">
+                    <ShiftsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="kitchen"
+                element={
+                  <ProtectedRoute requiredPermission="update_kitchen_status" fallbackPath="/restaurant/orders">
+                    <KitchenKDS />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="menu"
+                element={
+                  <ProtectedRoute
+                    requiredPermissions={["edit_menu", "toggle_availability"]}
+                    fallbackPath="/restaurant/orders"
+                  >
+                    <Menu />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="tables"
+                element={
+                  <ProtectedRoute
+                    requiredPermissions={["confirm_order", "settle_bill"]}
+                    fallbackPath="/restaurant/orders"
+                  >
+                    <Tables />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="reports"
+                element={
+                  <ProtectedRoute requiredPermission="view_reports" fallbackPath="/restaurant/orders">
+                    <Reports />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="audit"
+                element={
+                  <ProtectedRoute requiredPermission="view_reports" fallbackPath="/restaurant/orders">
+                    <AuditLogsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="staff"
+                element={
+                  <ProtectedRoute requiredPermission="manage_staff" fallbackPath="/restaurant/orders">
+                    <StaffPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="subscription"
+                element={
+                  <ProtectedRoute requiredPermission="manage_subscription" fallbackPath="/restaurant/orders">
+                    <SubscriptionPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="settings"
+                element={
+                  <ProtectedRoute requiredPermission="change_settings" fallbackPath="/restaurant/orders">
+                    <RestaurantSettings />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="*" element={<Navigate to="/restaurant" replace />} />
+            </Routes>
+          )}
         </main>
       </div>
+
+      {/* Quick Payment Submission Modal */}
+      {showPaymentModal && (restaurant?.id || subscription?.restaurant_id) && (
+        <SubmitPaymentModal
+          restaurantId={restaurant?.id || subscription?.restaurant_id || ""}
+          currentPlan={subscription?.plan_code || "growth"}
+          onClose={() => setShowPaymentModal(false)}
+          onSuccess={() => {
+            setShowPaymentModal(false);
+            fetchSubscription();
+          }}
+        />
+      )}
     </div>
   );
 };

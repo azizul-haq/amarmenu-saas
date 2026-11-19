@@ -9,6 +9,7 @@ import {
   Clock,
   AlertCircle,
   Copy,
+  Check,
 } from "lucide-react";
 import {
   Card,
@@ -268,7 +269,7 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     email: "",
-    subscriptionPlan: "free_trial",
+    subscriptionPlan: "growth",
     internalNotes: "",
     sendViaSMS: true,
     sendViaWhatsApp: true,
@@ -359,10 +360,13 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
           onChange={(e) =>
             setFormData({ ...formData, subscriptionPlan: e.target.value })
           }
-          options={Object.keys(APP_CONFIG.plans).map((key) => ({
-            value: key,
-            label: APP_CONFIG.plans[key as keyof typeof APP_CONFIG.plans].name,
-          }))}
+          options={Object.keys(APP_CONFIG.plans).map((key) => {
+            const p = APP_CONFIG.plans[key as keyof typeof APP_CONFIG.plans];
+            return {
+              value: key,
+              label: `${p.name} (৳${p.price.toLocaleString()}/mo - ${p.freeTrialDays}-day trial)`,
+            };
+          })}
         />
 
         <Textarea
@@ -540,8 +544,7 @@ const CredentialsModal: React.FC<CredentialsModalProps> = ({
 
   const handleCopy = async () => {
     if (!result?.inviteLink) return;
-    const text = `AmarMenu Restaurant Onboarding:\n\nRestaurant: ${result.restaurant?.name}\nEmail: ${result.email}\nSet Password & Access Link:\n${result.inviteLink}`;
-    const success = await copyToClipboard(text);
+    const success = await copyToClipboard(result.inviteLink);
     if (success) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -592,8 +595,19 @@ const CredentialsModal: React.FC<CredentialsModalProps> = ({
                 <label className="text-xs text-text-secondary">
                   Invitation & Set-Password URL
                 </label>
-                <div className="mt-1 p-2 bg-white rounded border border-border break-all font-mono text-xs text-accent">
-                  {result.inviteLink}
+                <div
+                  onClick={handleCopy}
+                  className="mt-1 p-2 bg-white rounded border border-border break-all font-mono text-xs text-accent flex items-center justify-between gap-2 cursor-pointer hover:border-accent transition-colors group"
+                  title="Click to copy URL"
+                >
+                  <span className="break-all select-all">{result.inviteLink}</span>
+                  <span className="shrink-0 text-text-secondary group-hover:text-accent p-1">
+                    {copied ? (
+                      <Check className="w-3.5 h-3.5 text-success" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                  </span>
                 </div>
               </div>
             )}
@@ -605,7 +619,7 @@ const CredentialsModal: React.FC<CredentialsModalProps> = ({
           <Button
             variant="outline"
             fullWidth
-            icon={<Copy className="w-4 h-4" />}
+            icon={copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
             onClick={handleCopy}
           >
             {copied ? "Copied to Clipboard!" : "Copy Onboarding Link"}

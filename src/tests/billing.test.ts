@@ -7,6 +7,7 @@ import {
   getOrderPayments,
   getOrderItemsNormalized,
 } from "../services/restaurantService";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 13: Billing (Cash), Normalized Order Items, Payments & Table Reset", () => {
   let anonClient: SupabaseClient;
@@ -46,9 +47,10 @@ describe("Chunk 13: Billing (Cash), Normalized Order Items, Payments & Table Res
     });
 
     // Authenticate Admin
+    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
-      email: "admin@foodorder.com",
-      password: "admin123",
+      email: creds.super_admin.email,
+      password: creds.super_admin.password,
     });
     if (authAdmin.error) throw new Error(`Admin auth failed: ${authAdmin.error.message}`);
 
@@ -157,8 +159,8 @@ describe("Chunk 13: Billing (Cash), Normalized Order Items, Payments & Table Res
     };
   };
 
-  describe("1. Normalized order_items Table Synchronization", () => {
-    it("automatically synchronizes order_items via database trigger on order placement", async () => {
+  describe("1. Normalized order_items Table Synchronization & Price Immutability", () => {
+    it("automatically synchronizes order_items via database trigger on order placement and guarantees price immutability", async () => {
       const { orderId } = await createReadyOrder(false);
 
       const items = await getOrderItemsNormalized(orderId);
@@ -171,6 +173,23 @@ describe("Chunk 13: Billing (Cash), Normalized Order Items, Payments & Table Res
       expect(firstItem.quantity).toBe(2);
       expect(Number(firstItem.unit_price)).toBe(300);
       expect(Number(firstItem.item_total)).toBe(600);
+
+      // Mutate menu item price in menu_items table
+      await ownerAClient
+        .from("menu_items")
+        .update({ base_price: 550, price: 550 } as any)
+        .eq("id", testItemId);
+
+      // Re-fetch historical order_items -> price must remain completely unchanged
+      const historicalItems = await getOrderItemsNormalized(orderId);
+      expect(Number(historicalItems[0].unit_price)).toBe(300);
+      expect(Number(historicalItems[0].item_total)).toBe(600);
+
+      // Restore base price back to 300
+      await ownerAClient
+        .from("menu_items")
+        .update({ base_price: 300, price: 300 } as any)
+        .eq("id", testItemId);
     });
   });
 
@@ -334,13 +353,13 @@ describe("Chunk 13: Billing (Cash), Normalized Order Items, Payments & Table Res
       const { orderId, total } = await createReadyOrder(false);
       await settleOrderBill(orderId, "cash", total);
 
-      // Query payments as Anon
-      const { data: anonPayments } = await anonClient
+      // Query payments as Anon (SELECT privilege on payments revoked from anon in Chunk 20d)
+      const { data: _anonPayments, error: anonErr } = await anonClient
         .from("payments")
         .select("*")
         .eq("order_id", orderId);
 
-      expect(anonPayments?.length).toBe(0);
+      expect(anonErr?.code).toBe("42501");
 
       // Query payments as Owner A (authorized)
       const { data: aPayments } = await ownerAClient

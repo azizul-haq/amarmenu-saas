@@ -10,6 +10,7 @@ import {
   MapPin,
   Calendar,
   Crown,
+  Send,
 } from "lucide-react";
 import {
   Card,
@@ -24,6 +25,7 @@ import {
 import {
   subscribeToRestaurants,
   toggleRestaurantStatus,
+  resendRestaurantInvite,
 } from "../../services/adminService";
 import type { Restaurant } from "../../config/supabase";
 import { formatDateTime } from "../../utils/helpers";
@@ -41,6 +43,8 @@ const AllRestaurants: React.FC = () => {
     useState<Restaurant | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
+  const [resendStatus, setResendStatus] = useState<{ message: string; link?: string } | null>(null);
+  const [resendingId, setResendingId] = useState<string | null>(null);
 
   // Real-time subscription
   useEffect(() => {
@@ -103,17 +107,34 @@ const AllRestaurants: React.FC = () => {
 
   const getPlanBadge = (plan: string) => {
     const planConfig = APP_CONFIG.plans[plan as keyof typeof APP_CONFIG.plans];
-    if (!planConfig) return null;
+    const planName = planConfig?.name || plan || "Growth";
 
     return (
       <Badge
-        variant={plan === "enterprise" ? "success" : "neutral"}
-        className="flex items-center space-x-1"
+        variant={plan === "enterprise" ? "success" : plan === "growth" ? "accent-secondary" : "neutral"}
+        className="flex items-center space-x-1 uppercase text-[10px] tracking-wider font-bold"
       >
         {plan === "enterprise" && <Crown className="w-3 h-3" />}
-        <span>{planConfig.name}</span>
+        <span>{planName}</span>
       </Badge>
     );
+  };
+
+  const handleResendInvite = async (restaurant: Restaurant) => {
+    setResendingId(restaurant.id);
+    setResendStatus(null);
+    try {
+      const res = await resendRestaurantInvite(restaurant.id);
+      if (res.success) {
+        setResendStatus({ message: res.message || "Invite processed successfully.", link: res.inviteLink });
+      } else {
+        setResendStatus({ message: res.error || "Failed to resend invite." });
+      }
+    } catch (err: unknown) {
+      setResendStatus({ message: err instanceof Error ? err.message : "Error resending invite" });
+    } finally {
+      setResendingId(null);
+    }
   };
 
   if (loading) {
@@ -269,6 +290,16 @@ const AllRestaurants: React.FC = () => {
                     View
                   </Button>
                   <Button
+                    variant="outline"
+                    size="sm"
+                    fullWidth
+                    icon={<Send className="w-4 h-4" />}
+                    loading={resendingId === restaurant.id}
+                    onClick={() => handleResendInvite(restaurant)}
+                  >
+                    Resend Invite
+                  </Button>
+                  <Button
                     variant={
                       restaurant.status === "blocked" ? "secondary" : "danger"
                     }
@@ -311,6 +342,34 @@ const AllRestaurants: React.FC = () => {
           setSelectedRestaurant(null);
         }}
       />
+
+      {/* Resend Invite Feedback Modal */}
+      {resendStatus && (
+        <Modal
+          isOpen={true}
+          onClose={() => setResendStatus(null)}
+          title="Invitation Status"
+        >
+          <div className="space-y-4">
+            <p className="text-text">{resendStatus.message}</p>
+            {resendStatus.link && (
+              <div className="p-3 bg-bg-subtle rounded-lg border border-border space-y-2">
+                <p className="text-xs text-text-secondary font-medium">Single-Use Activation Link (Shown Once):</p>
+                <input
+                  type="text"
+                  readOnly
+                  value={resendStatus.link}
+                  className="w-full text-xs font-mono p-2 bg-bg border border-border rounded text-text select-all"
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
+                />
+              </div>
+            )}
+            <Button fullWidth onClick={() => setResendStatus(null)}>
+              Close
+            </Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

@@ -126,8 +126,9 @@ describe("Restaurant Tables, QR Token & Customer Detection Flow", () => {
       expect(data).toBeNull();
     });
 
-    it("allows Restaurant A to regenerate table QR token", async () => {
+    it("allows Restaurant A to regenerate table QR token (verifies old token rejected, new accepted)", async () => {
       expect(createdTableId).not.toBeNull();
+      const oldToken = createdQrToken;
 
       const { data: newToken, error } = await clientA.rpc(
         "regenerate_table_qr_token",
@@ -136,8 +137,24 @@ describe("Restaurant Tables, QR Token & Customer Detection Flow", () => {
 
       expect(error).toBeNull();
       expect(newToken).toBeDefined();
-      expect(newToken).not.toBe(createdQrToken);
+      expect(newToken).not.toBe(oldToken);
       expect(newToken.length).toBe(32);
+
+      // Verify old token is immediately REJECTED
+      const { data: oldVerify } = await anonClient.rpc("verify_table_qr_token", {
+        p_slug: restASlug,
+        p_token: oldToken,
+      });
+      expect(oldVerify.valid).toBe(false);
+      expect(oldVerify.error).toBe("Invalid table QR token");
+
+      // Verify new token is immediately ACCEPTED
+      const { data: newVerify } = await anonClient.rpc("verify_table_qr_token", {
+        p_slug: restASlug,
+        p_token: newToken,
+      });
+      expect(newVerify.valid).toBe(true);
+      expect(newVerify.table.id).toBe(createdTableId);
 
       // Update our reference token for subsequent tests
       createdQrToken = newToken as string;

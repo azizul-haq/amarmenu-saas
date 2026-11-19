@@ -10,6 +10,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Card, Button, Loading } from "../../components/ui";
+import { useAuth } from "../../context/AuthContext";
 import { getTenantSubscriptionDetails } from "../../services/subscriptionService";
 import type {
   TenantSubscriptionRecord,
@@ -19,6 +20,7 @@ import { formatCurrency } from "../../utils/helpers";
 import { SubmitPaymentModal } from "../../components/restaurant/SubmitPaymentModal";
 
 export const SubscriptionPage: React.FC = () => {
+  const { restaurant, restaurantId: authRestaurantId } = useAuth();
   const [loading, setLoading] = useState<boolean>(true);
   const [subscription, setSubscription] = useState<TenantSubscriptionRecord | null>(null);
   const [invoices, setInvoices] = useState<SubscriptionInvoice[]>([]);
@@ -40,20 +42,27 @@ export const SubscriptionPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    let rId = "";
-    const currentRestaurant = localStorage.getItem("current_restaurant");
-    if (currentRestaurant) {
-      try {
-        const parsed = JSON.parse(currentRestaurant);
-        rId = parsed.id || "";
-      } catch {
-        // fallback
+    let rId = authRestaurantId || restaurant?.id || "";
+
+    if (!rId) {
+      const currentRestaurant = localStorage.getItem("current_restaurant");
+      if (currentRestaurant) {
+        try {
+          const parsed = JSON.parse(currentRestaurant);
+          rId = parsed.id || "";
+        } catch {
+          // fallback
+        }
       }
     }
 
     if (!rId) {
-      const user = JSON.parse(localStorage.getItem("user") || "{}");
-      rId = user.restaurant_id || "";
+      try {
+        const user = JSON.parse(localStorage.getItem("user") || "{}");
+        rId = user.restaurant_id || "";
+      } catch {
+        // fallback
+      }
     }
 
     if (rId) {
@@ -63,7 +72,7 @@ export const SubscriptionPage: React.FC = () => {
       setLoading(false);
       setError("Restaurant session not found.");
     }
-  }, [loadData]);
+  }, [authRestaurantId, restaurant?.id, loadData]);
 
   if (loading && !subscription) {
     return <Loading text="Loading subscription details..." />;

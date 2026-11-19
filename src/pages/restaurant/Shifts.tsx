@@ -16,13 +16,15 @@ import { formatCurrency, formatDateTime } from "../../utils/helpers";
 import { OpenShiftModal } from "../../components/restaurant/OpenShiftModal";
 import { CloseShiftModal } from "../../components/restaurant/CloseShiftModal";
 import { ZReportModal } from "../../components/restaurant/ZReportModal";
+import { useAuth } from "../../context/AuthContext";
 
 export const ShiftsPage: React.FC = () => {
+  const { restaurant: authRestaurant, restaurantId: authRestaurantId } = useAuth();
   const [activeShift, setActiveShift] = useState<ActiveShiftDetails | null>(null);
   const [history, setHistory] = useState<CashShift[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [restaurantId, setRestaurantId] = useState<string>("");
-  const [restaurantName, setRestaurantName] = useState<string>("Restaurant");
+  const [restaurantId, setRestaurantId] = useState<string>(authRestaurantId || authRestaurant?.id || "");
+  const [restaurantName, setRestaurantName] = useState<string>(authRestaurant?.name || "Restaurant");
 
   // Modals
   const [showOpenModal, setShowOpenModal] = useState<boolean>(false);
@@ -30,16 +32,31 @@ export const ShiftsPage: React.FC = () => {
   const [viewZReport, setViewZReport] = useState<ZReportData | null>(null);
 
   useEffect(() => {
-    const currentRestaurant = localStorage.getItem("current_restaurant");
-    if (!currentRestaurant) {
+    let targetRestaurantId = authRestaurantId || authRestaurant?.id || "";
+    let targetName = authRestaurant?.name || "";
+
+    if (!targetRestaurantId) {
+      const currentRestaurant = localStorage.getItem("current_restaurant");
+      if (currentRestaurant) {
+        try {
+          const parsed = JSON.parse(currentRestaurant);
+          targetRestaurantId = parsed.id || "";
+          if (parsed.name) targetName = parsed.name;
+        } catch {
+          // fallback
+        }
+      }
+    }
+
+    if (!targetRestaurantId) {
       setLoading(false);
       return;
     }
-    const { id, name } = JSON.parse(currentRestaurant);
-    setRestaurantId(id);
-    if (name) setRestaurantName(name);
-    loadShiftData(id);
-  }, []);
+
+    setRestaurantId(targetRestaurantId);
+    if (targetName) setRestaurantName(targetName);
+    loadShiftData(targetRestaurantId);
+  }, [authRestaurantId, authRestaurant?.id]);
 
   const loadShiftData = async (rId: string) => {
     setLoading(true);

@@ -7,8 +7,10 @@ import {
   formatDateTime,
   formatDate,
   formatTime,
+  copyToClipboard,
 } from "./helpers";
 import { APP_CONFIG } from "../config/config";
+import { vi } from "vitest";
 
 describe("Bangladesh Localization & Configuration", () => {
   describe("App Config", () => {
@@ -147,6 +149,73 @@ describe("Bangladesh Localization & Configuration", () => {
       const dateTimeStr = formatDateTime(testUtcDate);
       expect(dateTimeStr).toMatch(/17 Nov 2026/);
       expect(dateTimeStr).toMatch(/12:30/);
+    });
+  });
+
+  describe("copyToClipboard", () => {
+    it("should return false if text is empty", async () => {
+      const result = await copyToClipboard("");
+      expect(result).toBe(false);
+    });
+
+    it("should use navigator.clipboard.writeText when available and in secure context", async () => {
+      const writeTextMock = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(globalThis, "window", {
+        value: { isSecureContext: true },
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(globalThis.navigator, "clipboard", {
+        value: { writeText: writeTextMock },
+        configurable: true,
+        writable: true,
+      });
+
+      const result = await copyToClipboard("https://amarmenu.com/onboarding");
+      expect(result).toBe(true);
+      expect(writeTextMock).toHaveBeenCalledWith("https://amarmenu.com/onboarding");
+    });
+
+    it("should fall back to document.execCommand when navigator.clipboard is unavailable (HTTP / LAN context)", async () => {
+      // Simulate non-secure context (e.g. http://192.168.0.103:5173)
+      Object.defineProperty(globalThis, "window", {
+        value: { isSecureContext: false },
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(globalThis.navigator, "clipboard", {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+
+      const mockTextArea = {
+        value: "",
+        style: {},
+        setAttribute: vi.fn(),
+        focus: vi.fn(),
+        select: vi.fn(),
+        setSelectionRange: vi.fn(),
+      };
+
+      const execCommandMock = vi.fn().mockReturnValue(true);
+      Object.defineProperty(globalThis, "document", {
+        value: {
+          createElement: vi.fn().mockReturnValue(mockTextArea),
+          body: {
+            appendChild: vi.fn(),
+            removeChild: vi.fn(),
+          },
+          execCommand: execCommandMock,
+        },
+        configurable: true,
+        writable: true,
+      });
+
+      const result = await copyToClipboard("http://192.168.0.103:5173/set-password?email=test@example.com");
+      expect(result).toBe(true);
+      expect(execCommandMock).toHaveBeenCalledWith("copy");
+      expect(mockTextArea.value).toBe("http://192.168.0.103:5173/set-password?email=test@example.com");
     });
   });
 });

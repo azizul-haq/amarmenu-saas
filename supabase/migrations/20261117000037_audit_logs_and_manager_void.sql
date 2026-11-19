@@ -4,11 +4,7 @@
 
 -- 1. Add manager_pin_hash to restaurant_staff
 ALTER TABLE restaurant_staff ADD COLUMN IF NOT EXISTS manager_pin_hash TEXT;
-
--- Set default PIN '1234' for existing owners and managers
-UPDATE restaurant_staff
-SET manager_pin_hash = crypt('1234', gen_salt('bf'))
-WHERE role IN ('owner', 'manager') AND manager_pin_hash IS NULL;
+-- Note: Default PIN seeds removed. PINs are set via set_staff_manager_pin RPC with strict non-trivial validation.
 
 -- 2. Create audit_logs table
 CREATE TABLE IF NOT EXISTS audit_logs (

@@ -486,12 +486,9 @@ END $$;
 -- =====================================================
 -- INSERT DEFAULT ADMIN USER
 -- =====================================================
--- Email: admin@foodorder.com
--- Password: admin123
--- Hash: SHA-256 of "admin123"
-INSERT INTO admin_users (email, password_hash, name, is_super_admin)
-VALUES ('admin@foodorder.com', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 'System Admin', TRUE)
-ON CONFLICT (email) DO NOTHING;
+-- Seed admin removed: Production db push creates zero users.
+-- Super Admin is provisioned via GoTrue Admin API in supabase/seed-staging/seed.ts.
+-- =====================================================
 
 -- =====================================================
 -- VERIFICATION
@@ -505,8 +502,8 @@ BEGIN
   RAISE NOTICE '✓ Real-time replication configured';
   RAISE NOTICE '';
   RAISE NOTICE 'Admin Login:';
-  RAISE NOTICE '  Email: admin@foodorder.com';
-  RAISE NOTICE '  Password: admin123';
+  RAISE NOTICE '  Email: [REDACTED_SEED_EMAIL]';
+  RAISE NOTICE '  Password: [REDACTED_SEED_CREDENTIAL]';
   RAISE NOTICE '';
   RAISE NOTICE 'Next: Enable real-time in Supabase Dashboard > Database > Replication';
 END $$;

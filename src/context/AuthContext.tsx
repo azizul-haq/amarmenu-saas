@@ -16,7 +16,8 @@ interface AuthContextType {
   permissions: string[];
   hasPermission: (permission: string) => boolean;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ success: boolean; role?: UserRole; error?: string }>;
+  mustChangePassword: boolean;
+  signIn: (identifier: string, password: string) => Promise<{ success: boolean; role?: UserRole; error?: string }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -70,7 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 2. Check if user is a restaurant staff member (Owner, Manager, Cashier, etc.)
       const { data: staffData } = await supabase
         .from("restaurant_staff")
-        .select("*")
+        .select("id, auth_user_id, restaurant_id, full_name, phone, email, role, is_active, created_at, updated_at")
         .or(`auth_user_id.eq.${currentUser.id},email.eq.${currentUser.email}`)
         .eq("is_active", true)
         .maybeSingle();
@@ -90,20 +91,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const rolePerms = (permData || []).map((p: { permission: string }) => p.permission);
         setPermissions(rolePerms);
 
-        // Load associated restaurant details
+        // Load associated restaurant details via secure get_my_restaurant() RPC
         let loadedRestaurant: Restaurant | null = null;
         if (staff.restaurant_id) {
-          const { data: restData } = await supabase
-            .from("restaurants")
-            .select("*")
-            .eq("id", staff.restaurant_id)
-            .maybeSingle();
+          const { data: restData } = await supabase.rpc("get_my_restaurant");
 
           if (restData) {
             loadedRestaurant = restData as Restaurant;
             setRestaurant(loadedRestaurant);
+            localStorage.setItem("current_restaurant", JSON.stringify(loadedRestaurant));
           }
         }
+        localStorage.setItem("user", JSON.stringify({ ...staff, restaurant_id: staff.restaurant_id }));
         return {
           role: staff.role as UserRole,
           restaurant: loadedRestaurant,
@@ -112,6 +111,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // No role found
+      localStorage.removeItem("user");
+      localStorage.removeItem("admin");
+      localStorage.removeItem("current_restaurant");
       setRole(null);
       setProfile(null);
       setPlatformAdmin(null);
@@ -186,11 +188,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [loadUserProfile]);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (identifier: string, password: string) => {
     setLoading(true);
     try {
+      let loginEmail = identifier.trim().toLowerCase();
+      // Handle phone login: normalize BD phone number and target synthetic staff email
+      const digits = identifier.replace(/\D/g, "");
+      if (digits.length >= 10 && (identifier.startsWith("+880") || identifier.startsWith("01") || identifier.startsWith("880") || digits.length === 11)) {
+        let normPhone = digits;
+        if (normPhone.startsWith("880") && normPhone.length === 13) {
+          normPhone = `+${normPhone}`;
+        } else if (normPhone.startsWith("01") && normPhone.length === 11) {
+          normPhone = `+88${normPhone}`;
+        } else if (normPhone.startsWith("1") && normPhone.length === 10) {
+          normPhone = `+880${normPhone}`;
+        }
+        loginEmail = `${normPhone.replace(/\D/g, "")}@staff.amarmenu.internal`;
+      }
+
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
+        email: loginEmail,
         password,
       });
 
@@ -223,6 +240,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Clear legacy storage items if any exist
       localStorage.removeItem("user");
       localStorage.removeItem("admin");
+      localStorage.removeItem("current_restaurant");
       setUser(null);
       setSession(null);
       setProfile(null);
@@ -238,6 +256,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const mustChangePassword = !!user?.app_metadata?.must_change_password;
+
   return (
     <AuthContext.Provider
       value={{
@@ -251,6 +271,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         permissions,
         hasPermission,
         loading,
+        mustChangePassword,
         signIn,
         signOut,
         refreshProfile,

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { getServiceRoleClient } from "./serviceRoleClient";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist", () => {
   let anonClient: SupabaseClient;
@@ -38,9 +39,10 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
     if (authOwnerA.error) throw new Error(`Owner A auth failed: ${authOwnerA.error.message}`);
 
     // Authenticate Super Admin
+    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
-      email: "admin@foodorder.com",
-      password: "admin123",
+      email: creds.super_admin.email,
+      password: creds.super_admin.password,
     });
     if (authAdmin.error) throw new Error(`Admin auth failed: ${authAdmin.error.message}`);
 
@@ -94,10 +96,10 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
       );
     }
 
-    // Ensure Owner A PIN is '1234'
+    // Ensure Owner A PIN is '4827'
     await serviceRole.rpc("set_staff_manager_pin", {
       p_staff_id: staffAOwnerId,
-      p_new_pin: "1234",
+      p_new_pin: "4827",
     });
 
     // Reset failed pin counter
@@ -159,6 +161,8 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
       "verify_table_qr_token",
       "initiate_online_payment",
       "create_online_payment_session",
+      "get_payment_status",
+      "set_initial_owner_password",
     ]);
 
     const ALLOWED_AUTH = new Set([
@@ -168,6 +172,8 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
       "verify_table_qr_token",
       "initiate_online_payment",
       "create_online_payment_session",
+      "get_payment_status",
+      "set_initial_owner_password",
       // Staff
       "open_cash_shift",
       "close_cash_shift",
@@ -185,8 +191,8 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
       "current_restaurant_id",
       "has_permission",
       "get_staff_permissions",
+      "get_my_restaurant",
       // Super admin
-      "admin_create_restaurant",
       "admin_reject_request",
       "admin_toggle_restaurant_status",
       "admin_override_subscription",
@@ -196,6 +202,12 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
       "get_platform_billing_overview",
       "is_super_admin",
       "get_table_policies",
+      "admin_list_restaurants",
+      "admin_list_plans",
+      "admin_save_plan",
+      "admin_toggle_plan_status",
+      "admin_run_grace_sweep",
+      "admin_release_subscription_trxid",
     ]);
 
     const SERVICE_ROLE_ONLY = new Set([
@@ -206,6 +218,7 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
       "evaluate_subscription_grace_and_lock",
       "audit_security_definer_functions",
       "check_function_privilege",
+      "check_and_increment_rate_limit",
     ]);
 
     it("verifies that NO public SECURITY DEFINER function has anon EXECUTE unless on ALLOWED_ANON list", async () => {
@@ -316,7 +329,7 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
     it("denies anon from calling void_order_with_pin (42501)", async () => {
       const { error } = await anonClient.rpc("void_order_with_pin", {
         p_order_id: testOrderIdA,
-        p_manager_pin: "1234",
+        p_manager_pin: "4827",
         p_reason: "Customer left",
       });
       expect(error).not.toBeNull();
@@ -375,6 +388,7 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
       const { error } = await waiterAClient.rpc("verify_subscription_payment", {
         p_invoice_id: crypto.randomUUID(),
         p_action: "approve",
+        p_amount: 1000,
         p_rejection_reason: null,
       });
       expect(error).not.toBeNull();
@@ -488,7 +502,7 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
       // Subsequent attempt is blocked by lockout with code P0008
       const { error: errLockout } = await ownerAClient.rpc("verify_manager_pin", {
         p_restaurant_id: restAId,
-        p_pin: "1234", // Even correct PIN is blocked during lockout
+        p_pin: "4827", // Even correct PIN is blocked during lockout
       });
 
       expect(errLockout).not.toBeNull();
@@ -503,10 +517,10 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
         [staffAOwnerId]
       );
 
-      // Provide correct PIN (1234)
+      // Provide correct PIN (4827)
       const { data, error } = await ownerAClient.rpc("verify_manager_pin", {
         p_restaurant_id: restAId,
-        p_pin: "1234",
+        p_pin: "4827",
       });
 
       expect(error).toBeNull();

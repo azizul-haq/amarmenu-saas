@@ -43,6 +43,7 @@ import type { Order, OrderItem, Restaurant } from "../../config/supabase";
 import { supabase } from "../../config/supabase";
 import { formatDateTime, formatCurrency, playSound } from "../../utils/helpers";
 import { usePermissions } from "../../hooks/usePermissions";
+import { useAuth } from "../../context/AuthContext";
 
 const Orders: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -67,29 +68,41 @@ const Orders: React.FC = () => {
   } = usePermissions();
   const previousOrdersRef = useRef<Order[]>([]);
 
+  const { restaurant: authRestaurant, restaurantId: authRestaurantId } = useAuth();
+
   useEffect(() => {
-    // Get restaurant ID from local storage
-    const currentRestaurant = localStorage.getItem("current_restaurant");
-    if (!currentRestaurant) {
+    let targetRestaurantId = authRestaurantId || authRestaurant?.id || "";
+    let targetName = authRestaurant?.name || "";
+
+    if (!targetRestaurantId) {
+      const currentRestaurant = localStorage.getItem("current_restaurant");
+      if (currentRestaurant) {
+        try {
+          const parsed = JSON.parse(currentRestaurant);
+          targetRestaurantId = parsed.id || "";
+          if (parsed.name) targetName = parsed.name;
+        } catch {
+          // fallback
+        }
+      }
+    }
+
+    if (!targetRestaurantId) {
       setLoading(false);
       return;
     }
 
-    const { id: restaurantId, name } = JSON.parse(currentRestaurant);
-    if (name) setRestaurantName(name);
+    if (targetName) setRestaurantName(targetName);
 
-    // Fetch full restaurant details (VAT BIN, trade license, etc.)
+    // Fetch restaurant details securely via get_my_restaurant() RPC
     supabase
-      .from("restaurants")
-      .select("*")
-      .eq("id", restaurantId)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) setRestaurantData(data as Restaurant);
+      .rpc("get_my_restaurant")
+      .then(({ data, error }) => {
+        if (!error && data) setRestaurantData(data as Restaurant);
       });
 
     // Subscribe to real-time orders
-    const subscription = subscribeToOrders(restaurantId, (newOrders) => {
+    const subscription = subscribeToOrders(targetRestaurantId, (newOrders) => {
       // Check for new pending orders to play sound
       const previousPending = previousOrdersRef.current.filter(
         (o) => o.status === "pending"

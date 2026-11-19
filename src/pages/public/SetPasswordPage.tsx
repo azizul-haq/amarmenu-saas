@@ -18,9 +18,26 @@ const SetPasswordPage: React.FC = () => {
   const [success, setSuccess] = useState(false);
   const [hasSession, setHasSession] = useState(false);
 
-  const emailParam = searchParams.get("email") || "";
+  // Store token and type in component state and strip them from the browser address bar
+  const [tokenHash, setTokenHash] = useState<string>("");
+  const [otpType, setOtpType] = useState<"invite" | "recovery" | null>(null);
 
   useEffect(() => {
+    const hashFromUrl = searchParams.get("token_hash");
+    const rawType = searchParams.get("type");
+
+    if (hashFromUrl) {
+      setTokenHash(hashFromUrl);
+      if (rawType === "invite" || rawType === "recovery") {
+        setOtpType(rawType);
+      } else {
+        setOtpType("recovery");
+      }
+
+      // Strip token_hash and type from address bar to prevent scanner/leak issues
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
     // Check if user is currently in a recovery/invite session via token in URL hash
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
@@ -45,7 +62,7 @@ const SetPasswordPage: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,7 +82,7 @@ const SetPasswordPage: React.FC = () => {
 
     try {
       if (hasSession) {
-        // Active session from invite/recovery link -> update password directly
+        // Active session from prior login/recovery -> update password directly
         const { error: updateError } = await supabase.auth.updateUser({
           password: password,
         });
@@ -79,40 +96,37 @@ const SetPasswordPage: React.FC = () => {
         setTimeout(() => {
           navigate("/restaurant");
         }, 1500);
-      } else if (emailParam) {
-        // Fallback: If arrived via email link without pre-authenticated session
-        // Attempt signup or sign in with new password
-        const { error: signUpError } = await supabase.auth.signUp({
-          email: emailParam,
+      } else if (tokenHash) {
+        // Anti-scanner protection: verifyOtp({ type, token_hash }) only on explicit user click
+        const selectedType = otpType === "invite" ? "invite" : "recovery";
+        const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: selectedType,
+        });
+
+        if (verifyError || !verifyData?.session) {
+          throw new Error(
+            verifyError?.message || "Invalid or expired invitation link. Please request a new invite link from support."
+          );
+        }
+
+        // Session is now established; immediately update password
+        const { error: updateError } = await supabase.auth.updateUser({
           password: password,
         });
 
-        if (signUpError) {
-          // If already created by admin, attempt password update via reset
-          const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-            emailParam,
-            { redirectTo: `${window.location.origin}/set-password` }
-          );
-
-          if (resetError) {
-            throw new Error(
-              "Unable to set password. Please use the exact link sent to your email or contact support."
-            );
-          } else {
-            setError(
-              "A verification link has been sent to your email. Please click the link to confirm your password."
-            );
-            return;
-          }
+        if (updateError) {
+          throw updateError;
         }
 
         setSuccess(true);
+        await refreshProfile();
         setTimeout(() => {
-          navigate("/login");
+          navigate("/restaurant");
         }, 1500);
       } else {
         setError(
-          "Invalid or expired invitation link. Please request a new invite link from support."
+          "Invalid or expired invitation link. Please request a new invite link from your administrator."
         );
       }
     } catch (err: unknown) {
@@ -146,9 +160,7 @@ const SetPasswordPage: React.FC = () => {
               Set Your Password
             </h1>
             <p className="text-text-secondary">
-              {emailParam
-                ? `Create a secure password for ${emailParam}`
-                : "Create a secure password for your restaurant owner account"}
+              Create a secure password for your restaurant owner account
             </p>
           </div>
 

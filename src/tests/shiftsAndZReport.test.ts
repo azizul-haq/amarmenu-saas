@@ -9,6 +9,7 @@ import {
   getCashShiftsHistory,
 } from "../services/shiftService";
 import { settleOrderBill } from "../services/restaurantService";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 15: Cash Drawer Shifts, EOD Z-Report & Cash Reconciliation", () => {
   let anonClient: SupabaseClient;
@@ -46,9 +47,10 @@ describe("Chunk 15: Cash Drawer Shifts, EOD Z-Report & Cash Reconciliation", () 
     });
 
     // Authenticate Admin
+    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
-      email: "admin@foodorder.com",
-      password: "admin123",
+      email: creds.super_admin.email,
+      password: creds.super_admin.password,
     });
     if (authAdmin.error) throw new Error(`Admin auth failed: ${authAdmin.error.message}`);
 

@@ -34,21 +34,22 @@ describe("Chunk 16: Sales Analytics & Bangladesh NBR Mushak-6.3 VAT Reports", ()
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const creds = getTestCredentials();
+
     // 1. Authenticate Owner A
     const authA = await ownerAClient.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (authA.error) throw new Error(`Owner A auth failed: ${authA.error.message}`);
 
     // Set singleton session for service calls
     await supabase.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
 
     // 2. Authenticate Super Admin
-    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
       email: creds.super_admin.email,
       password: creds.super_admin.password,

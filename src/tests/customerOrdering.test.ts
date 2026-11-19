@@ -3,6 +3,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { customerCheckoutSchema } from "../schemas/orderSchema";
 import { getCustomerOrder } from "../services/restaurantService";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Customer Ordering, Cart Schema & Order Tracking (Chunk 10)", () => {
   let anonClient: SupabaseClient;
@@ -18,9 +19,10 @@ describe("Customer Ordering, Cart Schema & Order Tracking (Chunk 10)", () => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const creds = getTestCredentials();
     const authRes = await ownerClient.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (authRes.error) {
       console.warn("Owner signin warning:", authRes.error.message);

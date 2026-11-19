@@ -7,6 +7,7 @@ import {
   sizeVariantSchema,
   addonVariantSchema,
 } from "../schemas/menuSchema";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Bilingual Menu Management, Validation & Soft Delete", () => {
   let clientA: SupabaseClient;
@@ -24,9 +25,10 @@ describe("Bilingual Menu Management, Validation & Soft Delete", () => {
     clientA = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    const creds = getTestCredentials();
     const authA = await clientA.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (authA.error) throw new Error(`Auth A failed: ${authA.error.message}`);
   });

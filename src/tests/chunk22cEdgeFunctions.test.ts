@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { getServiceRoleClient } from "./serviceRoleClient";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 22c: Edge Functions HTTP Integration Tests", () => {
   let ownerAClient: SupabaseClient;
@@ -35,13 +36,16 @@ describe("Chunk 22c: Edge Functions HTTP Integration Tests", () => {
     return { status: 200, data: null, error: null };
   }
 
-  async function signInUser(email: string): Promise<SupabaseClient> {
+  const creds = getTestCredentials();
+
+  async function signInUser(email: string, password?: string): Promise<SupabaseClient> {
     const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    const pw = password || creds.restaurant_a.owner.password;
     const { data, error } = await client.auth.signInWithPassword({
       email,
-      password: "password123",
+      password: pw,
     });
     if (error || !data.user) {
       throw new Error(`Failed to sign in as ${email}: ${error?.message}`);
@@ -59,10 +63,10 @@ describe("Chunk 22c: Edge Functions HTTP Integration Tests", () => {
       if (r.slug === "dhanmondi-treat") restBId = r.id;
     }
 
-    ownerAClient = await signInUser("testowner@amarmenu.com");
-    waiterAClient = await signInUser("testwaiter@amarmenu.com");
-    managerAClient = await signInUser("testmanager@amarmenu.com");
-    ownerBClient = await signInUser("ownerb@amarmenu.com");
+    ownerAClient = await signInUser(creds.restaurant_a.owner.email, creds.restaurant_a.owner.password);
+    waiterAClient = await signInUser(creds.restaurant_a.waiter.email, creds.restaurant_a.waiter.password);
+    managerAClient = await signInUser(creds.restaurant_a.manager.email, creds.restaurant_a.manager.password);
+    ownerBClient = await signInUser(creds.restaurant_b.owner.email, creds.restaurant_b.owner.password);
   });
 
   afterAll(async () => {
@@ -74,6 +78,12 @@ describe("Chunk 22c: Edge Functions HTTP Integration Tests", () => {
         console.warn("Cleanup warning for user", uid, err);
       }
     }
+  });
+
+  beforeEach(async () => {
+    await serviceRole.query(
+      `DELETE FROM rate_limits WHERE bucket IN ('invite-staff', 'change-own-password')`
+    );
   });
 
   // =========================================================================
@@ -192,7 +202,8 @@ describe("Chunk 22c: Edge Functions HTTP Integration Tests", () => {
     it("rejects common / weak passwords", async () => {
       const resp = await waiterAClient.functions.invoke("change-own-password", {
         body: {
-          old_password: "password123",
+          current_password: creds.restaurant_a.waiter.password,
+          old_password: creds.restaurant_a.waiter.password,
           new_password: "password12345", // common password list
         },
       });
@@ -209,6 +220,7 @@ describe("Chunk 22c: Edge Functions HTTP Integration Tests", () => {
     it("rejects change if old password does not match", async () => {
       const resp = await waiterAClient.functions.invoke("change-own-password", {
         body: {
+          current_password: "wrongoldpassword999",
           old_password: "wrongoldpassword999",
           new_password: "Str0ng!NewPassword#2026",
         },

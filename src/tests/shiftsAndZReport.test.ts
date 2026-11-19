@@ -33,21 +33,22 @@ describe("Chunk 15: Cash Drawer Shifts, EOD Z-Report & Cash Reconciliation", () 
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const creds = getTestCredentials();
+
     // Authenticate Owner A
     const authA = await ownerAClient.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (authA.error) throw new Error(`Owner A auth failed: ${authA.error.message}`);
 
     // Supabase singleton for service calls
     await supabase.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
 
     // Authenticate Admin
-    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
       email: creds.super_admin.email,
       password: creds.super_admin.password,

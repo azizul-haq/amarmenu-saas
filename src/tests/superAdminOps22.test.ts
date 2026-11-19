@@ -3,6 +3,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { assertStagingEnvironment } from "./stagingGuard";
 import { getServiceRoleClient } from "./serviceRoleClient";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 22: Super Admin Operations Hardening & Platform Audit Log", () => {
   let anonClient: SupabaseClient;
@@ -39,18 +40,20 @@ describe("Chunk 22: Super Admin Operations Hardening & Platform Audit Log", () =
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const creds = getTestCredentials();
+
     // Authenticate Super Admin
     const adminAuth = await adminClient.auth.signInWithPassword({
-      email: "admin@foodorder.com",
-      password: process.env.TEST_ADMIN_PASSWORD || "password123",
+      email: creds.super_admin.email,
+      password: creds.super_admin.password,
     });
     if (adminAuth.error) throw new Error(`Super Admin auth failed: ${adminAuth.error.message}`);
     adminUserId = adminAuth.data.user.id;
 
     // Authenticate Owner A
     const ownerAuth = await ownerAClient.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (ownerAuth.error) throw new Error(`Owner A auth failed: ${ownerAuth.error.message}`);
 
@@ -58,40 +61,23 @@ describe("Chunk 22: Super Admin Operations Hardening & Platform Audit Log", () =
     const { data: staffA } = await ownerAClient
       .from("restaurant_staff")
       .select("restaurant_id")
-      .eq("email", "testowner@amarmenu.com")
+      .eq("email", creds.restaurant_a.owner.email)
       .single();
     restAId = staffA!.restaurant_id;
 
     // Authenticate Waiter A
     const waiterAuth = await waiterAClient.auth.signInWithPassword({
-      email: "testwaiter@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.waiter.email,
+      password: creds.restaurant_a.waiter.password,
     });
     if (waiterAuth.error) throw new Error(`Waiter A auth failed: ${waiterAuth.error.message}`);
 
-    // Ensure Manager A exists and authenticate
-    let managerAuth = await managerAClient.auth.signInWithPassword({
-      email: "testmanager@amarmenu.com",
-      password: "password123",
+    // Authenticate Manager A
+    const managerAuth = await managerAClient.auth.signInWithPassword({
+      email: creds.restaurant_a.manager.email,
+      password: creds.restaurant_a.manager.password,
     });
-    if (managerAuth.error) {
-      await serviceRole.query(
-        `INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
-         VALUES (gen_random_uuid(), 'testmanager@amarmenu.com', crypt('password123', gen_salt('bf')), NOW(), '{"provider":"email","providers":["email"]}', '{"full_name":"Test Manager"}', NOW(), NOW())
-         ON CONFLICT (email) DO UPDATE SET encrypted_password = crypt('password123', gen_salt('bf')), email_confirmed_at = NOW()`
-      );
-      await serviceRole.query(
-        `INSERT INTO auth.identities (id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
-         SELECT id, id, json_build_object('sub', id::text, 'email', email), 'email', NOW(), NOW(), NOW()
-         FROM auth.users WHERE email = 'testmanager@amarmenu.com'
-         ON CONFLICT (provider, id) DO NOTHING`
-      );
-      managerAuth = await managerAClient.auth.signInWithPassword({
-        email: "testmanager@amarmenu.com",
-        password: "password123",
-      });
-      if (managerAuth.error) throw new Error(`Manager A auth failed: ${managerAuth.error.message}`);
-    }
+    if (managerAuth.error) throw new Error(`Manager A auth failed: ${managerAuth.error.message}`);
   });
 
   describe("1. Subscription Sweep Hardening (Service Role Internal vs Super Admin Wrapper)", () => {
@@ -535,10 +521,11 @@ describe("Chunk 22: Super Admin Operations Hardening & Platform Audit Log", () =
 
     it("strictly prevents a Super Admin who is also staff of the invoice restaurant from self-verifying (P0003)", async () => {
       // Temporarily link admin as staff in Restaurant A
+      const creds = getTestCredentials();
       await serviceRole.query(
         `INSERT INTO restaurant_staff (restaurant_id, auth_user_id, full_name, email, role, is_active)
-         VALUES ($1, $2, 'Admin Self-Staff', 'admin@foodorder.com', 'owner', TRUE)`,
-        [restAId, adminUserId]
+         VALUES ($1, $2, 'Admin Self-Staff', $3, 'owner', TRUE)`,
+        [restAId, adminUserId, creds.super_admin.email]
       );
 
       const { data, error } = await adminClient.rpc("verify_subscription_payment", {

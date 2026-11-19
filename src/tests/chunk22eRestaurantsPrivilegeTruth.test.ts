@@ -111,11 +111,17 @@ describe("Chunk 22e: Restaurants Column-Level Privileges, Resend Invite & Securi
     it("allows Manager to update default_vat_rate (has change_settings and column in grant)", async () => {
       const { error, status } = await managerAClient
         .from("restaurants")
-        .update({ default_vat_rate: 0.075 })
+        .update({ default_vat_rate: 7.50 })
         .eq("id", restAId);
 
       expect(error).toBeNull();
       expect([200, 204]).toContain(status);
+
+      // Restore default_vat_rate back to 5.00 for subsequent test suites
+      await managerAClient
+        .from("restaurants")
+        .update({ default_vat_rate: 5.00 })
+        .eq("id", restAId);
     });
 
     it("DENIES Cashier from updating restaurant name (lacks change_settings, row unchanged)", async () => {
@@ -216,7 +222,14 @@ describe("Chunk 22e: Restaurants Column-Level Privileges, Resend Invite & Securi
       });
 
       expect(resp.error).toBeDefined();
-      expect(resp.error?.message).toMatch(/forbidden|super admin/i);
+      let errMsg = resp.error?.message || "";
+      if ((resp.error as any)?.context?.json) {
+        try {
+          const body = await (resp.error as any).context.json();
+          errMsg = body?.error || errMsg;
+        } catch {}
+      }
+      expect(errMsg).toMatch(/forbidden|super admin/i);
     });
 
     it("rejects invocation without restaurantId (400)", async () => {
@@ -227,7 +240,14 @@ describe("Chunk 22e: Restaurants Column-Level Privileges, Resend Invite & Securi
       });
 
       expect(resp.error).toBeDefined();
-      expect(resp.error?.message).toMatch(/missing or invalid.*restaurantId/i);
+      let errMsg = resp.error?.message || "";
+      if ((resp.error as any)?.context?.json) {
+        try {
+          const body = await (resp.error as any).context.json();
+          errMsg = body?.error || errMsg;
+        } catch {}
+      }
+      expect(errMsg).toMatch(/missing or invalid.*restaurantId/i);
     });
 
     it("verifies platform_audit_logs never contains the token or link", async () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { getServiceRoleClient } from "./serviceRoleClient";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 22b & 22c: Role Enforcement Scope across Menu Items, Categories, Tables & Restaurants", () => {
   let ownerClient: SupabaseClient;
@@ -15,13 +16,14 @@ describe("Chunk 22b & 22c: Role Enforcement Scope across Menu Items, Categories,
   let categoryId: string;
   const serviceRole = getServiceRoleClient();
 
-  async function signInUser(email: string): Promise<SupabaseClient> {
+  async function signInUser(email: string, password?: string): Promise<SupabaseClient> {
     const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    const pw = password || creds.restaurant_a.owner.password;
     const { data, error } = await client.auth.signInWithPassword({
       email,
-      password: "password123",
+      password: pw,
     });
     if (error || !data.user) {
       throw new Error(`Failed to sign in as ${email}: ${error?.message}`);
@@ -54,13 +56,14 @@ describe("Chunk 22b & 22c: Role Enforcement Scope across Menu Items, Categories,
       categoryId = inserted[0].id;
     }
 
-    // 3. Sign in all 6 roles
-    ownerClient = await signInUser("testowner@amarmenu.com");
-    managerClient = await signInUser("testmanager@amarmenu.com");
-    cashierClient = await signInUser("testcashier@amarmenu.com");
-    kitchenClient = await signInUser("testkitchen@amarmenu.com");
-    waiterClient = await signInUser("testwaiter@amarmenu.com");
-    superAdminClient = await signInUser("admin@foodorder.com");
+    // 3. Sign in all 6 roles via test credentials
+    const creds = getTestCredentials();
+    ownerClient = await signInUser(creds.restaurant_a.owner.email, creds.restaurant_a.owner.password);
+    managerClient = await signInUser(creds.restaurant_a.manager.email, creds.restaurant_a.manager.password);
+    cashierClient = await signInUser(creds.restaurant_a.cashier.email, creds.restaurant_a.cashier.password);
+    kitchenClient = await signInUser(creds.restaurant_a.kitchen.email, creds.restaurant_a.kitchen.password);
+    waiterClient = await signInUser(creds.restaurant_a.waiter.email, creds.restaurant_a.waiter.password);
+    superAdminClient = await signInUser(creds.super_admin.email, creds.super_admin.password);
   });
 
   // =========================================================================

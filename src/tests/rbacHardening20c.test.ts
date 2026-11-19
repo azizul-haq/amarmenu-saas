@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { getServiceRoleClient } from "./serviceRoleClient";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 20c: RBAC Privilege Hardening, Anon Column Gating & Tenant Isolation", () => {
   let anonClient: SupabaseClient;
@@ -20,12 +21,13 @@ describe("Chunk 20c: RBAC Privilege Hardening, Anon Column Gating & Tenant Isola
       auth: { persistSession: false },
     });
 
+    const creds = getTestCredentials();
     adminClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const authAdmin = await adminClient.auth.signInWithPassword({
-      email: "admin@foodorder.com",
-      password: process.env.TEST_ADMIN_PASSWORD || "password123",
+      email: creds.super_admin.email,
+      password: creds.super_admin.password,
     });
     if (authAdmin.error) {
       throw new Error(`Admin Auth failed: ${authAdmin.error.message}`);
@@ -33,18 +35,27 @@ describe("Chunk 20c: RBAC Privilege Hardening, Anon Column Gating & Tenant Isola
 
     // Obtain Restaurant A
     const staffRows = await serviceRole.query<{ restaurant_id: string }>(
-      `SELECT restaurant_id FROM restaurant_staff WHERE email = 'testowner@amarmenu.com' LIMIT 1`
+      `SELECT restaurant_id FROM restaurant_staff WHERE email = $1 LIMIT 1`,
+      [creds.restaurant_a.owner.email]
     );
-    restAId = staffRows[0].restaurant_id;
+    if (staffRows.length > 0) {
+      restAId = staffRows[0].restaurant_id;
+    } else {
+      const restRows = await serviceRole.query<{ id: string }>(
+        `SELECT id FROM restaurants WHERE slug = 'demo-restaurant' LIMIT 1`
+      );
+      restAId = restRows[0].id;
+    }
 
     // Helper to ensure authenticated staff
-    async function setupStaff(email: string, role: string) {
+    async function setupStaff(email: string, role: string, password?: string) {
       const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
+      const pw = password || creds.restaurant_a.owner.password;
       const auth = await client.auth.signInWithPassword({
         email,
-        password: "password123",
+        password: pw,
       });
       if (auth.error) {
         throw new Error(`Auth failed for ${email}: ${auth.error.message}`);
@@ -72,13 +83,13 @@ describe("Chunk 20c: RBAC Privilege Hardening, Anon Column Gating & Tenant Isola
       return { client, staffId };
     }
 
-    const waiter = await setupStaff("testwaiter@amarmenu.com", "waiter");
+    const waiter = await setupStaff(creds.restaurant_a.waiter.email, "waiter", creds.restaurant_a.waiter.password);
     waiterClient = waiter.client;
 
-    const owner = await setupStaff("testowner@amarmenu.com", "owner");
+    const owner = await setupStaff(creds.restaurant_a.owner.email, "owner", creds.restaurant_a.owner.password);
     ownerClient = owner.client;
 
-    const cashier = await setupStaff("testcashier@amarmenu.com", "cashier");
+    const cashier = await setupStaff(creds.restaurant_a.cashier.email, "cashier", creds.restaurant_a.cashier.password);
     cashierClient = cashier.client;
     cashierStaffId = cashier.staffId;
   });

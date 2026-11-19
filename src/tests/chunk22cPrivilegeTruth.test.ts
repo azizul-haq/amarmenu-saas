@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { getServiceRoleClient } from "./serviceRoleClient";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 22c: Permanent Privilege Truth & Lockdown Regression Suite", () => {
   let waiterAClient: SupabaseClient;
@@ -14,13 +15,16 @@ describe("Chunk 22c: Permanent Privilege Truth & Lockdown Regression Suite", () 
 
   const serviceRole = getServiceRoleClient();
 
-  async function signInUser(email: string): Promise<SupabaseClient> {
+  const creds = getTestCredentials();
+
+  async function signInUser(email: string, password?: string): Promise<SupabaseClient> {
     const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    const pw = password || creds.restaurant_a.owner.password;
     const { data, error } = await client.auth.signInWithPassword({
       email,
-      password: "password123",
+      password: pw,
     });
     if (error || !data.user) {
       throw new Error(`Failed to sign in as ${email}: ${error?.message}`);
@@ -46,9 +50,9 @@ describe("Chunk 22c: Permanent Privilege Truth & Lockdown Regression Suite", () 
     );
     samplePaymentId = payments[0]?.id;
 
-    waiterAClient = await signInUser("testwaiter@amarmenu.com");
-    cashierAClient = await signInUser("testcashier@amarmenu.com");
-    adminClient = await signInUser("admin@foodorder.com");
+    waiterAClient = await signInUser(creds.restaurant_a.waiter.email, creds.restaurant_a.waiter.password);
+    cashierAClient = await signInUser(creds.restaurant_a.cashier.email, creds.restaurant_a.cashier.password);
+    adminClient = await signInUser(creds.super_admin.email, creds.super_admin.password);
   });
 
   it("(a) blocks anon from reading sensitive columns of restaurants (42501)", async () => {

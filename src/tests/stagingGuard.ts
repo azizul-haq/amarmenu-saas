@@ -124,14 +124,22 @@ export function assertStagingEnvironment(customEnvPath?: string): void {
   }
 
   // 6. Decode service-role key or anon key and verify its "ref" claim matches stagingProjectRef
-  const serviceOrAnonKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.VITE_SUPABASE_ANON_KEY;
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.SUPABASE_SECRET_KEY) {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SECRET_KEY;
+  }
+  if (!process.env.SUPABASE_ANON_KEY && process.env.SUPABASE_PUBLISHABLE_KEY) {
+    process.env.SUPABASE_ANON_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
+  }
 
-  if (serviceOrAnonKey) {
-    const payload = decodeJwtPayload(serviceOrAnonKey);
+  const jwtKey = [
+    process.env.SUPABASE_ANON_KEY,
+    process.env.VITE_SUPABASE_ANON_KEY,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY,
+  ].find((k) => k && k.split(".").length === 3);
+
+  if (jwtKey) {
+    const payload = decodeJwtPayload(jwtKey);
     const tokenRef = payload.ref as string;
 
     if (!tokenRef) {

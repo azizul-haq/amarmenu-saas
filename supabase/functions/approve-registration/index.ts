@@ -40,16 +40,16 @@ serve(async (req: Request) => {
       );
     }
 
-    // 3. Verify user calling this function is an authenticated Super Admin
-    const userClient = createClient(supabaseUrl, supabaseAnonKey || "", {
-      global: { headers: { Authorization: authHeader } },
+    // 3. Initialize Privileged Service Role Client (Edge server only)
+    const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
       auth: { persistSession: false },
     });
 
+    const token = authHeader.replace(/^Bearer\s+/i, "");
     const {
       data: { user },
       error: userError,
-    } = await userClient.auth.getUser();
+    } = await adminClient.auth.getUser(token);
 
     if (userError || !user) {
       return new Response(
@@ -59,7 +59,7 @@ serve(async (req: Request) => {
     }
 
     // Check platform_admins table strictly for active super_admin
-    const { data: adminRecord, error: adminError } = await userClient
+    const { data: adminRecord, error: adminError } = await adminClient
       .from("platform_admins")
       .select("id, role, is_active")
       .eq("auth_user_id", user.id)
@@ -73,11 +73,6 @@ serve(async (req: Request) => {
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    // 4. Initialize Privileged Service Role Client (Edge server only)
-    const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { persistSession: false },
-    });
 
     const body: RequestPayload = await req.json();
 

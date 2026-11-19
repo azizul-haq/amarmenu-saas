@@ -4,6 +4,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { getServiceRoleClient } from "./serviceRoleClient";
 import { assertStagingEnvironment, decodeJwtPayload } from "./stagingGuard";
 import { getPaymentStatus } from "../services/onlinePaymentService";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 21a: Verification, Cleanup & Staging Preparation", () => {
   let anonClient: SupabaseClient;
@@ -22,9 +23,10 @@ describe("Chunk 21a: Verification, Cleanup & Staging Preparation", () => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const creds = getTestCredentials();
     const authRes = await ownerClient.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (authRes.error) {
       throw new Error(`Owner auth failed: ${authRes.error.message}`);
@@ -207,29 +209,18 @@ describe("Chunk 21a: Verification, Cleanup & Staging Preparation", () => {
   describe("6. invite-staff Rollback Verification (Real DB Constraint)", () => {
     it("guarantees that when DB insertion fails, no orphan auth user remains", async () => {
       // Simulate invite-staff transaction failure:
-      // 1. Create a temporary auth user
+      // 1. Create a temporary auth user via GoTrue Admin API
       const tempEmail = `rollback_test_${Date.now()}@amarmenu.com`;
-      const authUser = await serviceRole.adminQuery<{ id: string }>(
-        `INSERT INTO auth.users (
-           instance_id, id, aud, role, email, encrypted_password,
-           email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
-           created_at, updated_at
-         ) VALUES (
-           '00000000-0000-0000-0000-000000000000',
-           gen_random_uuid(),
-           'authenticated',
-           'authenticated',
-           $1,
-           'dummy_hash',
-           NOW(),
-           '{"provider":"email","providers":["email"],"must_change_password":true}',
-           '{}',
-           NOW(),
-           NOW()
-         ) RETURNING id`,
-        [tempEmail]
-      );
-      const authUserId = authUser[0].id;
+      const adminClient = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
+        email: tempEmail,
+        password: "TempPassword123!",
+        email_confirm: true,
+      });
+      expect(createErr).toBeNull();
+      const authUserId = created!.user.id;
       createdTestAuthUserIds.push(authUserId);
 
       // 2. Simulate DB constraint failure on restaurant_staff (e.g. invalid restaurant_id)
@@ -247,17 +238,14 @@ describe("Chunk 21a: Verification, Cleanup & Staging Preparation", () => {
       } catch (err: unknown) {
         dbFailed = true;
         // 3. Rollback action: invite-staff deletes the auth user via admin API when DB fails
-        await serviceRole.adminQuery(`DELETE FROM auth.users WHERE id = $1`, [authUserId]);
+        await adminClient.auth.admin.deleteUser(authUserId);
       }
 
       expect(dbFailed).toBe(true);
 
       // 4. Verify auth user was rolled back and does not exist in auth.users
-      const check = await serviceRole.adminQuery<{ id: string }>(
-        `SELECT id FROM auth.users WHERE id = $1`,
-        [authUserId]
-      );
-      expect(check.length).toBe(0);
+      const { data: getUserData } = await adminClient.auth.admin.getUserById(authUserId);
+      expect(getUserData.user).toBeNull();
     });
   });
 });

@@ -9,5 +9,6 @@ export default defineConfig({
     setupFiles: ["./src/tests/stagingGuard.ts"],
     testTimeout: 20000,
     hookTimeout: 25000,
+    fileParallelism: false,
   },
 });

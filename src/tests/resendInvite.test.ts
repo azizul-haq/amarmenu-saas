@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { assertStagingEnvironment } from "./stagingGuard";
 import { getTestCredentials } from "./testCredentials";
-import { ServiceRoleClient } from "./serviceRoleClient";
+import { getServiceRoleClient, ServiceRoleClientInterface } from "./serviceRoleClient";
 
 /**
  * HTTP Integration Test Suite for resend_invite Edge Function action
@@ -21,7 +21,7 @@ describe("resend_invite Edge Function Lifecycle & Security", () => {
   let superAdminClient: SupabaseClient;
   let waiterClient: SupabaseClient;
   let anonClient: SupabaseClient;
-  let serviceRole: ServiceRoleClient;
+  let serviceRole: ServiceRoleClientInterface;
   let edgeFunctionUrl: string;
 
   const creds = getTestCredentials();
@@ -31,7 +31,7 @@ describe("resend_invite Edge Function Lifecycle & Security", () => {
   beforeAll(async () => {
     assertStagingEnvironment();
 
-    serviceRole = new ServiceRoleClient();
+    serviceRole = getServiceRoleClient();
     edgeFunctionUrl = `${supabaseUrl}/functions/v1/approve-registration`;
 
     anonClient = createClient(supabaseUrl, anonKey, {
@@ -276,7 +276,11 @@ describe("resend_invite Edge Function Lifecycle & Security", () => {
 
     // Clean up test data
     await adminSupabase.auth.admin.deleteUser(ownerUid);
-    await serviceRole.adminQuery(`DELETE FROM restaurants WHERE id = '${testRestId}';`);
+    await serviceRole.adminQuery(`
+      ALTER TABLE restaurant_staff DISABLE TRIGGER USER;
+      DELETE FROM restaurants WHERE id = '${testRestId}';
+      ALTER TABLE restaurant_staff ENABLE TRIGGER USER;
+    `);
   });
 
   it("enforces rate limit: returns 429 when exceeding 5 requests in 5 minutes", async () => {

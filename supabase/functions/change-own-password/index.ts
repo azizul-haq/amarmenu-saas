@@ -51,16 +51,16 @@ serve(async (req: Request) => {
       );
     }
 
-    // 1. Verify caller identity using their own JWT
-    const userClient = createClient(supabaseUrl, supabaseAnonKey || "", {
-      global: { headers: { Authorization: authHeader } },
-      auth: { persistSession: false },
+    // 1. Admin client for privileged operations and user identity verification
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const token = authHeader.replace(/^Bearer\s+/i, "");
     const {
       data: { user: callerUser },
       error: authErr,
-    } = await userClient.auth.getUser();
+    } = await supabaseAdmin.auth.getUser(token);
 
     if (authErr || !callerUser) {
       return new Response(
@@ -68,11 +68,6 @@ serve(async (req: Request) => {
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    // 2. Admin client for privileged operations and rate limiting
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
 
     // Enforce DB-backed rate limiting keyed by caller user ID
     const { data: isAllowed, error: rlErr } = await supabaseAdmin.rpc(
@@ -121,7 +116,8 @@ serve(async (req: Request) => {
       );
     }
 
-    const { new_password, current_password, temporary_password } = body;
+    const { new_password, temporary_password } = body;
+    const current_password = body.current_password || (body as any).old_password;
 
     if (!new_password || typeof new_password !== "string") {
       return new Response(

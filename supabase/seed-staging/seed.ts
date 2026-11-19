@@ -68,7 +68,7 @@ async function main() {
 
   // Helper: create or update auth user via GoTrue Admin API
   async function ensureAuthUser(email: string, password: string, fullName: string): Promise<string> {
-    const { data: listData } = await adminClient.auth.admin.listUsers();
+    const { data: listData } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
     const existing = listData?.users?.find((u) => u.email?.toLowerCase() === email.toLowerCase());
 
     if (existing) {
@@ -86,7 +86,23 @@ async function main() {
         email_confirm: true,
         user_metadata: { full_name: fullName },
       });
-      if (error) throw new Error(`Failed to create auth user ${email}: ${error.message}`);
+      if (error) {
+        if (error.message.includes("already been registered")) {
+          // Retry listing or fetch users again
+          const { data: retryList } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
+          const retryUser = retryList?.users?.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+          if (retryUser) {
+            const { data: updated, error: updErr } = await adminClient.auth.admin.updateUserById(retryUser.id, {
+              password,
+              email_confirm: true,
+              user_metadata: { full_name: fullName },
+            });
+            if (updErr) throw new Error(`Failed to update auth user ${email}: ${updErr.message}`);
+            return updated.user.id;
+          }
+        }
+        throw new Error(`Failed to create auth user ${email}: ${error.message}`);
+      }
       return created.user.id;
     }
   }
@@ -102,7 +118,7 @@ async function main() {
     role: "super_admin",
     is_active: true,
     updated_at: new Date().toISOString(),
-  }, { onConflict: "auth_user_id" });
+  }, { onConflict: "email" });
   if (saErr) throw new Error(`Failed to link platform_admin: ${saErr.message}`);
 
   // 3. Provision Demo Restaurant (A)
@@ -125,7 +141,7 @@ async function main() {
       address: "Dhanmondi, Dhaka",
       subscription_plan: "growth",
       is_active: true,
-      default_vat_rate: 0.05,
+      default_vat_rate: 5.00,
       currency: "৳",
     }).eq("id", restAId);
   } else {
@@ -139,7 +155,7 @@ async function main() {
       address: "Dhanmondi, Dhaka",
       subscription_plan: "growth",
       is_active: true,
-      default_vat_rate: 0.05,
+      default_vat_rate: 5.00,
       currency: "৳",
     }).select("id").single();
     if (error) throw new Error(`Failed to insert Restaurant A: ${error.message}`);
@@ -170,18 +186,50 @@ async function main() {
   for (const staff of staffConfigs) {
     const uid = await ensureAuthUser(staff.email, staff.password, staff.name);
 
-    const { data: staffRow, error } = await adminClient.from("restaurant_staff").upsert({
-      restaurant_id: restAId,
-      auth_user_id: uid,
-      email: staff.email,
-      full_name: staff.name,
-      role: staff.role,
-      is_active: true,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "auth_user_id" }).select("id").single();
-    if (error) console.warn(`Staff link note for ${staff.email}: ${error.message}`);
-    if (staffRow) {
-      staffIdMap[staff.role] = staffRow.id;
+    const { data: existingStaff } = await adminClient
+      .from("restaurant_staff")
+      .select("id")
+      .eq("restaurant_id", restAId)
+      .eq("email", staff.email)
+      .maybeSingle();
+
+    let staffRowId: string | null = null;
+    if (existingStaff) {
+      const { data: updated, error: updErr } = await adminClient
+        .from("restaurant_staff")
+        .update({
+          auth_user_id: uid,
+          email: staff.email,
+          full_name: staff.name,
+          role: staff.role,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingStaff.id)
+        .select("id")
+        .single();
+      if (updErr) console.warn(`Staff update note for ${staff.email}: ${updErr.message}`);
+      staffRowId = updated?.id || existingStaff.id;
+    } else {
+      const { data: inserted, error: insErr } = await adminClient
+        .from("restaurant_staff")
+        .insert({
+          restaurant_id: restAId,
+          auth_user_id: uid,
+          email: staff.email,
+          full_name: staff.name,
+          role: staff.role,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+      if (insErr) console.warn(`Staff insert note for ${staff.email}: ${insErr.message}`);
+      staffRowId = inserted?.id || null;
+    }
+
+    if (staffRowId) {
+      staffIdMap[staff.role] = staffRowId;
     }
   }
 
@@ -305,7 +353,7 @@ async function main() {
       address: "Satmasjid Road, Dhaka",
       subscription_plan: "starter",
       is_active: true,
-      default_vat_rate: 0.05,
+      default_vat_rate: 5.00,
       currency: "৳",
     }).select("id").single();
     if (error) throw new Error(`Failed to insert Restaurant B: ${error.message}`);
@@ -314,15 +362,46 @@ async function main() {
 
   // Provision Owner of B
   const uidB = await ensureAuthUser(userCreds.owner_b.email, userCreds.owner_b.password, "Owner B");
-  const { data: ownerBStaffRow } = await adminClient.from("restaurant_staff").upsert({
-    restaurant_id: restBId,
-    auth_user_id: uidB,
-    email: userCreds.owner_b.email,
-    full_name: "Owner B",
-    role: "owner",
-    is_active: true,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "auth_user_id" }).select("id").single();
+  const { data: existingStaffB } = await adminClient
+    .from("restaurant_staff")
+    .select("id")
+    .eq("restaurant_id", restBId)
+    .eq("email", userCreds.owner_b.email)
+    .maybeSingle();
+
+  let ownerBStaffRow: { id: string } | null = null;
+  if (existingStaffB) {
+    const { data: updatedB } = await adminClient
+      .from("restaurant_staff")
+      .update({
+        auth_user_id: uidB,
+        email: userCreds.owner_b.email,
+        full_name: "Owner B",
+        role: "owner",
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existingStaffB.id)
+      .select("id")
+      .single();
+    ownerBStaffRow = updatedB || existingStaffB;
+  } else {
+    const { data: insertedB, error: insErrB } = await adminClient
+      .from("restaurant_staff")
+      .insert({
+        restaurant_id: restBId,
+        auth_user_id: uidB,
+        email: userCreds.owner_b.email,
+        full_name: "Owner B",
+        role: "owner",
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+    if (insErrB) console.warn(`Staff insert note for Owner B: ${insErrB.message}`);
+    ownerBStaffRow = insertedB;
+  }
 
   // Set Owner B manager PIN via Owner B sign-in
   if (ownerBStaffRow) {

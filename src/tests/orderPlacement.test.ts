@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Atomic place_order Procedure, Anti-Tampering & Idempotency", () => {
   let anonClient: SupabaseClient;
@@ -20,9 +21,10 @@ describe("Atomic place_order Procedure, Anti-Tampering & Idempotency", () => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const creds = getTestCredentials();
     const authA = await clientA.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (authA.error) throw new Error(`Auth failed: ${authA.error.message}`);
 

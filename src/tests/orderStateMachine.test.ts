@@ -4,11 +4,13 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { supabase } from "../config/supabase";
 import { updateOrderStatus, getOrderStatusHistory } from "../services/restaurantService";
 import { getTestCredentials } from "./testCredentials";
+import { getServiceRoleClient } from "./serviceRoleClient";
 
 describe("Order State Machine, Server Transitions & Waiter Verification (Chunk 11)", () => {
   let anonClient: SupabaseClient;
   let ownerAClient: SupabaseClient;
   let adminClient: SupabaseClient;
+  const serviceDbClient = getServiceRoleClient();
 
   let restAId: string;
   let testItemId: string;
@@ -26,20 +28,21 @@ describe("Order State Machine, Server Transitions & Waiter Verification (Chunk 1
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const creds = getTestCredentials();
+
     // Authenticate Owner A
     const authA = await ownerAClient.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (authA.error) throw new Error(`Owner A auth failed: ${authA.error.message}`);
 
     await supabase.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
 
     // Authenticate Admin
-    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
       email: creds.super_admin.email,
       password: creds.super_admin.password,
@@ -283,23 +286,13 @@ describe("Order State Machine, Server Transitions & Waiter Verification (Chunk 1
     });
 
     it("prevents staff from transitioning orders belonging to another restaurant", async () => {
-      // Create an order belonging to Restaurant B
-      const { data: orderB, error: insertError } = await adminClient
-        .from("orders")
-        .insert({
-          restaurant_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-          order_number: `ORD-B-${Date.now()}`,
-          order_type: "counter",
-          items: [],
-          subtotal: 100,
-          tax: 5,
-          total: 105,
-          status: "pending",
-        })
-        .select()
-        .single();
-
-      expect(insertError).toBeNull();
+      // Create an order belonging to Restaurant B using service role
+      const bRows = await serviceDbClient.adminQuery<{ id: string }>(
+        `INSERT INTO orders (restaurant_id, order_number, order_type, items, subtotal, tax, total, status)
+         VALUES ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'ORD-B-${Date.now()}', 'counter', '[]'::jsonb, 100, 5, 105, 'pending')
+         RETURNING id;`
+      );
+      const orderB = bRows[0];
       expect(orderB).toBeDefined();
 
       // Owner A (staff of Restaurant A) attempts to transition Restaurant B's order

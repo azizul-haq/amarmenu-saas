@@ -70,16 +70,16 @@ serve(async (req: Request) => {
       );
     }
 
-    // 2. Resolve caller identity
-    const userClient = createClient(supabaseUrl, supabaseAnonKey || "", {
-      global: { headers: { Authorization: authHeader } },
-      auth: { persistSession: false },
+    // 2. Initialize Privileged Service Role Client (Edge server only)
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const token = authHeader.replace(/^Bearer\s+/i, "");
     const {
       data: { user: callerUser },
       error: authError,
-    } = await userClient.auth.getUser();
+    } = await supabaseAdmin.auth.getUser(token);
 
     if (authError || !callerUser) {
       return new Response(
@@ -89,9 +89,6 @@ serve(async (req: Request) => {
     }
 
     // 3. Resolve caller's active restaurant_staff record and permissions
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
 
     const { data: callerStaff, error: callerStaffError } = await supabaseAdmin
       .from("restaurant_staff")

@@ -30,17 +30,18 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const creds = getTestCredentials();
+
     // Authenticate Owner A
     const authOwner = await ownerAClient.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (authOwner.error) {
       throw new Error(`Owner A auth failed: ${authOwner.error.message}`);
     }
 
     // Authenticate Super Admin for service-role simulation proxy
-    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
       email: creds.super_admin.email,
       password: creds.super_admin.password,

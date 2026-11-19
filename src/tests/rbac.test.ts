@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { getServiceRoleClient } from "./serviceRoleClient";
+import { getTestCredentials } from "./testCredentials";
 
 describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
   let anonClient: SupabaseClient;
@@ -23,15 +24,17 @@ describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
   // Helper to ensure auth user and restaurant_staff record exist
   async function ensureStaffMember(
     email: string,
-    role: "owner" | "manager" | "cashier" | "kitchen" | "waiter"
+    role: "owner" | "manager" | "cashier" | "kitchen" | "waiter",
+    password?: string
   ): Promise<{ client: SupabaseClient; userId: string; staffId: string }> {
     const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const pw = password || creds.restaurant_a.owner.password;
     const authRes = await client.auth.signInWithPassword({
       email,
-      password: "password123",
+      password: pw,
     });
 
     if (authRes.error) {
@@ -106,19 +109,28 @@ describe("Chunk 20: Role-Based Access Control (RBAC) System", () => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    // 1. Get Restaurant A ID from existing staff row
+    // 1. Get Restaurant A ID from existing staff row or demo-restaurant
+    const creds = getTestCredentials();
     const staffRows = await serviceRole.query<{ restaurant_id: string }>(
-      `SELECT restaurant_id FROM restaurant_staff WHERE email = 'testowner@amarmenu.com' LIMIT 1`
+      `SELECT restaurant_id FROM restaurant_staff WHERE email = $1 LIMIT 1`,
+      [creds.restaurant_a.owner.email]
     );
-    restAId = staffRows[0].restaurant_id;
+    if (staffRows.length > 0) {
+      restAId = staffRows[0].restaurant_id;
+    } else {
+      const restRows = await serviceRole.query<{ id: string }>(
+        `SELECT id FROM restaurants WHERE slug = 'demo-restaurant' LIMIT 1`
+      );
+      restAId = restRows[0].id;
+    }
 
-    // 2. Setup all 5 roles in parallel
+    // 2. Setup all 5 roles in parallel using test credentials
     const [ownerRes, managerRes, cashierRes, kitchenRes, waiterRes] = await Promise.all([
-      ensureStaffMember("testowner@amarmenu.com", "owner"),
-      ensureStaffMember("testmanager@amarmenu.com", "manager"),
-      ensureStaffMember("testcashier@amarmenu.com", "cashier"),
-      ensureStaffMember("testkitchen@amarmenu.com", "kitchen"),
-      ensureStaffMember("testwaiter@amarmenu.com", "waiter"),
+      ensureStaffMember(creds.restaurant_a.owner.email, "owner", creds.restaurant_a.owner.password),
+      ensureStaffMember(creds.restaurant_a.manager.email, "manager", creds.restaurant_a.manager.password),
+      ensureStaffMember(creds.restaurant_a.cashier.email, "cashier", creds.restaurant_a.cashier.password),
+      ensureStaffMember(creds.restaurant_a.kitchen.email, "kitchen", creds.restaurant_a.kitchen.password),
+      ensureStaffMember(creds.restaurant_a.waiter.email, "waiter", creds.restaurant_a.waiter.password),
     ]);
 
     ownerClient = ownerRes.client;

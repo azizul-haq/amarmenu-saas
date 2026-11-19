@@ -100,15 +100,36 @@ describe("Chunk 18: Super Admin Platform Analytics & Cross-Tenant Oversight", ()
       const beforeOrders = beforeRes.data!.overview.total_orders;
 
       // Place and settle a test order of known price
-      const { data: item } = await ownerAClient
+      const { data: items } = await ownerAClient
         .from("menu_items")
-        .select("id, price")
+        .select("id, base_price")
         .eq("restaurant_id", restAId)
-        .limit(1)
-        .single();
+        .limit(1);
+
+      let item = items?.[0];
+      if (!item) {
+        const { data: cat } = await ownerAClient
+          .from("menu_categories")
+          .select("id")
+          .eq("restaurant_id", restAId)
+          .limit(1)
+          .single();
+        const catId = cat?.id;
+        const { data: newItem } = await ownerAClient
+          .from("menu_items")
+          .insert({
+            restaurant_id: restAId,
+            category_id: catId,
+            name: "Analytics Delta Item",
+            base_price: 280,
+          })
+          .select("id, base_price")
+          .single();
+        item = newItem!;
+      }
 
       expect(item).not.toBeNull();
-      const orderPrice = Number(item!.price || 280);
+      const orderPrice = Number(item!.base_price || 280);
 
       const randomPhone = `017${Math.floor(10000000 + Math.random() * 90000000)}`;
       const { data: orderRes } = await anonClient.rpc("place_order", {

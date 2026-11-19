@@ -16,18 +16,19 @@ describe("Multi-Tenant Row Level Security (RLS) Isolation", () => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    // 2. Client A (Restaurant A Owner: testowner@amarmenu.com)
+    const creds = getTestCredentials();
+
+    // 2. Client A (Restaurant A Owner)
     clientA = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const authA = await clientA.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (authA.error) throw new Error(`Auth A failed: ${authA.error.message}`);
 
     // 3. Admin Client (Super Admin)
-    const creds = getTestCredentials();
     adminClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });

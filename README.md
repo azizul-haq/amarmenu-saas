@@ -51,7 +51,7 @@ VITE_SUPABASE_ANON_KEY=<your-anon-key>
 
 ### 3. Database Migrations
 
-Apply the migration history using the Supabase CLI:
+The authoritative database schema lives strictly and solely in `supabase/migrations/` (no external `schema.sql` files). Apply the migration history using the Supabase CLI:
 
 ```bash
 supabase db push

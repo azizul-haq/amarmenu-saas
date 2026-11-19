@@ -31,31 +31,12 @@ export function getTestCredentials(): StagingCredentialsFile {
       const data = JSON.parse(fs.readFileSync(credsPath, "utf-8"));
       cachedCreds = data;
       return cachedCreds!;
-    } catch {
-      // fallback
+    } catch (e) {
+      throw new Error(`Failed to parse .staging-credentials.json: ${(e as Error).message}`);
     }
   }
 
-  // Safe fallback structure if file not yet written
-  const defaultPw = process.env.TEST_USER_PASSWORD || "password123";
-  const superAdminEmail = (process.env.SEED_SUPER_ADMIN_EMAIL || "superadmin@amarmenu.com").trim().toLowerCase();
-
-  return {
-    super_admin: { email: superAdminEmail, password: defaultPw },
-    manager_pin: "4827",
-    restaurant_a: {
-      id: "",
-      slug: "demo-restaurant",
-      owner: { email: "owner@demo.example.com", password: defaultPw },
-      manager: { email: "manager@demo.example.com", password: defaultPw },
-      cashier: { email: "cashier@demo.example.com", password: defaultPw },
-      kitchen: { email: "kitchen@demo.example.com", password: defaultPw },
-      waiter: { email: "waiter@demo.example.com", password: defaultPw },
-    },
-    restaurant_b: {
-      id: "",
-      slug: "dhanmondi-treat",
-      owner: { email: "owner@restaurant-b.example.com", password: defaultPw },
-    },
-  };
+  throw new Error(
+    "[SECURITY FATAL] .staging-credentials.json does not exist. Run the seed script ('npx tsx supabase/seed-staging/seed.ts') first to generate random staging credentials."
+  );
 }

@@ -62,12 +62,11 @@ describe("Chunk 14: Append-Only Audit Logs & Manager PIN Overrides", () => {
       .single();
     restAId = staffA!.restaurant_id;
 
-    // Ensure manager PIN is configured to PIN
+    // Ensure manager PIN is configured to PIN for Owner A
     const { data: staffRow } = await ownerAClient
       .from("restaurant_staff")
       .select("id")
-      .eq("restaurant_id", restAId)
-      .eq("role", "owner")
+      .eq("auth_user_id", authA.data.user!.id)
       .single();
 
     if (staffRow) {
@@ -106,16 +105,21 @@ describe("Chunk 14: Append-Only Audit Logs & Manager PIN Overrides", () => {
       testItemId = item!.id;
     }
 
-    // Get an existing table
+    // Get an existing active table
     const { data: tables } = await ownerAClient
       .from("restaurant_tables")
       .select("id, qr_token")
       .eq("restaurant_id", restAId)
+      .eq("is_active", true)
+      .is("deleted_at", null)
       .limit(1);
 
     if (tables && tables.length > 0) {
       testTableId = tables[0].id;
       testTableToken = tables[0].qr_token;
+      await serviceDbClient.adminQuery(
+        `UPDATE restaurant_tables SET status = 'available' WHERE id = '${testTableId}';`
+      );
     } else {
       const { data: table } = await ownerAClient
         .from("restaurant_tables")
@@ -134,11 +138,15 @@ describe("Chunk 14: Append-Only Audit Logs & Manager PIN Overrides", () => {
 
   // Helper to place an order and get ID
   const createTestOrder = async (dineIn: boolean = true) => {
+    if (dineIn && testTableId) {
+      await serviceDbClient.adminQuery(
+        `UPDATE restaurant_tables SET status = 'available' WHERE id = '${testTableId}';`
+      );
+    }
     const randomSuffix = Math.floor(10000000 + Math.random() * 90000000);
     const { data: orderRes, error } = await anonClient.rpc("place_order", {
       p_restaurant_id: restAId,
       p_order_type: dineIn ? "table" : "counter",
-      p_table_id: dineIn ? testTableId : null,
       p_qr_token: dineIn ? testTableToken : null,
       p_customer_name: "Audit Tester",
       p_customer_phone: `017${randomSuffix}`,
@@ -170,7 +178,7 @@ describe("Chunk 14: Append-Only Audit Logs & Manager PIN Overrides", () => {
         .eq("id", logId);
 
       expect(error).not.toBeNull();
-      expect(error?.message).toMatch(/audit_logs is append-only/i);
+      expect(error?.message).toMatch(/Append-only audit table.*prohibited/i);
     });
 
     it("prohibits DELETE on audit_logs at the database trigger level", async () => {
@@ -187,7 +195,7 @@ describe("Chunk 14: Append-Only Audit Logs & Manager PIN Overrides", () => {
         .eq("id", logId);
 
       expect(error).not.toBeNull();
-      expect(error?.message).toMatch(/audit_logs is append-only/i);
+      expect(error?.message).toMatch(/Append-only audit table.*prohibited/i);
     });
   });
 
@@ -205,7 +213,7 @@ describe("Chunk 14: Append-Only Audit Logs & Manager PIN Overrides", () => {
 
       const res = await voidOrderWithPIN(orderId, PIN, "  ");
       expect(res.success).toBe(false);
-      expect(res.error).toMatch(/at least 3 characters/i);
+      expect(res.error).toMatch(/minimum 3 characters/i);
     });
 
     it("successfully authorizes and voids order when correct PIN and reason are provided", async () => {
@@ -218,18 +226,18 @@ describe("Chunk 14: Append-Only Audit Logs & Manager PIN Overrides", () => {
       );
 
       expect(res.success).toBe(true);
-      expect(res.data?.status).toBe("voided");
+      expect(res.data?.status).toBe("cancelled");
       expect(res.data?.audit_log_id).toBeDefined();
 
       // Verify in database
       const { data: order } = await ownerAClient
         .from("orders")
-        .select("status, void_reason")
+        .select("status, cancellation_reason")
         .eq("id", orderId)
         .single();
 
-      expect(order?.status).toBe("voided");
-      expect(order?.void_reason).toBe("Customer requested cancellation before cooking");
+      expect(order?.status).toBe("cancelled");
+      expect(order?.cancellation_reason).toBe("Customer requested cancellation before cooking");
     });
   });
 
@@ -240,10 +248,10 @@ describe("Chunk 14: Append-Only Audit Logs & Manager PIN Overrides", () => {
       // Verify table is initially marked occupied
       const { data: tableBefore } = await ownerAClient
         .from("restaurant_tables")
-        .select("is_occupied")
+        .select("status")
         .eq("id", testTableId)
         .single();
-      expect(tableBefore?.is_occupied).toBe(true);
+      expect(tableBefore?.status).toBe("occupied");
 
       // Void the dine-in order
       const res = await voidOrderWithPIN(orderId, PIN, "Table party walked out");
@@ -253,21 +261,24 @@ describe("Chunk 14: Append-Only Audit Logs & Manager PIN Overrides", () => {
       // Verify table is released
       const { data: tableAfter } = await ownerAClient
         .from("restaurant_tables")
-        .select("is_occupied")
+        .select("status")
         .eq("id", testTableId)
         .single();
-      expect(tableAfter?.is_occupied).toBe(false);
+      expect(tableAfter?.status).toBe("available");
     });
 
     it("marks completed payment as refunded when a settled order is voided", async () => {
       const { orderId } = await createTestOrder(false);
 
-      // Settle bill first
-      const settleRes = await settleOrderBill({
-        order_id: orderId,
-        payment_method: "cash",
-        amount_tendered: 400.0,
-      });
+      // Settle bill first (tender amount greater than or equal to total)
+      const { data: ord } = await ownerAClient
+        .from("orders")
+        .select("total")
+        .eq("id", orderId)
+        .single();
+      const settleAmount = Number(ord?.total || 400) + 500;
+
+      const settleRes = await settleOrderBill(orderId, "cash", settleAmount);
       expect(settleRes.success).toBe(true);
 
       // Verify payment row is completed
@@ -382,16 +393,12 @@ describe("Chunk 14: Append-Only Audit Logs & Manager PIN Overrides", () => {
       expect(data).toHaveProperty("success", true);
 
       // Verify audit_logs row created with actor_role = 'owner'
-      const { data: logEntry, error: logErr } = await serviceDbClient
-        .from("audit_logs")
-        .select("actor_role, entity_type, entity_id, action")
-        .eq("entity_id", targetStaffId)
-        .eq("action", "manager_pin_set")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single();
-
-      expect(logErr).toBeNull();
+      const logs = await serviceDbClient.query<{ actor_role: string; entity_type: string; entity_id: string; action: string }>(
+        "SELECT actor_role, entity_type, entity_id, action FROM audit_logs WHERE entity_id = $1 AND action = 'manager_pin_set' ORDER BY created_at DESC LIMIT 1",
+        [targetStaffId]
+      );
+      const logEntry = logs[0];
+      expect(logEntry).toBeDefined();
       expect(logEntry?.actor_role).toBe("owner");
       expect(logEntry?.entity_type).toBe("restaurant_staff");
     });
@@ -416,19 +423,15 @@ describe("Chunk 14: Append-Only Audit Logs & Manager PIN Overrides", () => {
       expect(data).toHaveProperty("success", true);
 
       // Verify audit_logs row created with actor_role = 'super_admin'
-      const { data: logEntry, error: logErr } = await serviceDbClient
-        .from("audit_logs")
-        .select("actor_role, actor_name, entity_type, entity_id, action")
-        .eq("entity_id", targetStaffId)
-        .eq("action", "manager_pin_set")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single();
-
-      expect(logErr).toBeNull();
-      expect(logEntry?.actor_role).toBe("super_admin");
-      expect(logEntry?.actor_name).toBe("Super Admin");
-      expect(logEntry?.entity_type).toBe("restaurant_staff");
+      const saLogs = await serviceDbClient.query<{ actor_role: string; actor_name: string; entity_type: string; entity_id: string; action: string }>(
+        "SELECT actor_role, actor_name, entity_type, entity_id, action FROM audit_logs WHERE entity_id = $1 AND action = 'manager_pin_set' ORDER BY created_at DESC LIMIT 1",
+        [targetStaffId]
+      );
+      const saLogEntry = saLogs[0];
+      expect(saLogEntry).toBeDefined();
+      expect(saLogEntry?.actor_role).toBe("super_admin");
+      expect(saLogEntry?.actor_name).toBe("Super Admin");
+      expect(saLogEntry?.entity_type).toBe("restaurant_staff");
     });
   });
 });

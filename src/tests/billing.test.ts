@@ -8,11 +8,13 @@ import {
   getOrderItemsNormalized,
 } from "../services/restaurantService";
 import { getTestCredentials } from "./testCredentials";
+import { getServiceRoleClient } from "./serviceRoleClient";
 
 describe("Chunk 13: Billing (Cash), Normalized Order Items, Payments & Table Reset", () => {
   let anonClient: SupabaseClient;
   let ownerAClient: SupabaseClient;
   let adminClient: SupabaseClient;
+  const serviceDbClient = getServiceRoleClient();
 
   let restAId: string;
   const REST_B_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
@@ -33,21 +35,22 @@ describe("Chunk 13: Billing (Cash), Normalized Order Items, Payments & Table Res
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const creds = getTestCredentials();
+
     // Authenticate Owner A
     const authA = await ownerAClient.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (authA.error) throw new Error(`Owner A auth failed: ${authA.error.message}`);
 
     // Authenticate Supabase singleton for service functions
     await supabase.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
 
     // Authenticate Admin
-    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
       email: creds.super_admin.email,
       password: creds.super_admin.password,
@@ -317,25 +320,13 @@ describe("Chunk 13: Billing (Cash), Normalized Order Items, Payments & Table Res
     });
 
     it("rejects settlement of an order belonging to another restaurant by staff without access", async () => {
-      // Create an order belonging to Restaurant B using admin
-      const { data: bOrder, error: bError } = await adminClient
-        .from("orders")
-        .insert({
-          restaurant_id: REST_B_ID,
-          order_number: `B-${Date.now().toString().slice(-6)}`,
-          order_type: "counter",
-          items: [{ menu_item_id: testItemId, name: "B Item", quantity: 1, base_price: 100, item_total: 100 }],
-          subtotal: 100,
-          tax: 5,
-          total: 105,
-          status: "ready",
-        })
-        .select()
-        .single();
-
-      if (bError || !bOrder) {
-        throw new Error(`Failed to create restaurant B order: ${bError?.message}`);
-      }
+      // Create an order belonging to Restaurant B using service role
+      const bRows = await serviceDbClient.adminQuery<{ id: string }>(
+        `INSERT INTO orders (restaurant_id, order_number, order_type, items, subtotal, tax, total, status)
+         VALUES ('${REST_B_ID}', 'B-${Date.now().toString().slice(-6)}', 'counter', '[]'::jsonb, 100, 5, 105, 'ready')
+         RETURNING id;`
+      );
+      const bOrder = bRows[0];
 
       // Owner A attempts to settle Restaurant B's order
       const { data, error } = await ownerAClient.rpc("settle_order_bill", {

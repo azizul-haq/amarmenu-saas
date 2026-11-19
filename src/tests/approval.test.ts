@@ -121,30 +121,40 @@ describe("Super Admin Registration Approval & Onboarding", () => {
     expect(staff?.full_name).toBe("Rafiqul Islam");
     expect(staff?.is_active).toBe(true);
 
-    // 7. Verify set_initial_owner_password allows newly approved owner to set password and log in
+    // 7. Verify legacy set_initial_owner_password RPC is dropped (Chunk 22e)
     const anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    // Rejection for non-existent email
-    const { error: invalidEmailErr } = await anonClient.rpc("set_initial_owner_password", {
-      p_email: "nonexistent_owner_email@example.com",
+    const { error: droppedRpcErr } = await anonClient.rpc("set_initial_owner_password", {
+      p_email: sampleEmail,
       p_password: "NewPassword123!",
     });
-    expect(invalidEmailErr).not.toBeNull();
+    expect(droppedRpcErr).not.toBeNull();
+    expect(droppedRpcErr?.code).toBe("PGRST202");
 
-    // Success for approved owner
+    // Success for approved owner via GoTrue Admin API
     const newOwnerPassword = "RafiqSecurePass2026!";
-    const { data: setPassResult, error: setPassErr } = await anonClient.rpc(
-      "set_initial_owner_password",
-      {
-        p_email: sampleEmail,
-        p_password: newOwnerPassword,
-      }
+    const serviceClient = createClient(
+      SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } }
     );
-    expect(setPassErr).toBeNull();
-    expect(setPassResult?.success).toBe(true);
-    expect(setPassResult?.user_id).toBeDefined();
+    const { data: newUser, error: createErr } = await serviceClient.auth.admin.createUser({
+      email: sampleEmail,
+      password: newOwnerPassword,
+      email_confirm: true,
+      user_metadata: { full_name: "Rafiqul Islam" },
+    });
+    expect(createErr).toBeNull();
+    expect(newUser.user).toBeDefined();
+
+    // Link the auth user to the restaurant_staff row
+    await serviceClient
+      .from("restaurant_staff")
+      .update({ auth_user_id: newUser.user.id })
+      .eq("restaurant_id", rpcData.restaurant_id)
+      .eq("role", "owner");
 
     // Verify owner can now sign in with their new password
     const ownerClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -165,10 +175,10 @@ describe("Super Admin Registration Approval & Onboarding", () => {
 
     // Clean up created test auth user (sets auth_user_id to null on staff)
     await serviceDbClient.adminQuery("DELETE FROM auth.identities WHERE user_id = $1", [
-      setPassResult.user_id,
+      newUser.user.id,
     ]);
     await serviceDbClient.adminQuery("DELETE FROM auth.users WHERE id = $1", [
-      setPassResult.user_id,
+      newUser.user.id,
     ]);
   });
 });

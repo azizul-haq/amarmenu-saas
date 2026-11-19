@@ -71,9 +71,11 @@ export function getServiceRoleClient(): ServiceRoleClientInterface {
       async adminQuery<R = unknown>(sql: string, params: unknown[] = []) {
         const client = await dbPool.connect();
         try {
+          await client.query("RESET ROLE;");
           const res = await client.query(sql, params);
           return res.rows as R[];
         } finally {
+          await client.query("RESET ROLE;").catch(() => {});
           client.release();
         }
       },

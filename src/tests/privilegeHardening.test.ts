@@ -31,15 +31,16 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const creds = getTestCredentials();
+
     // Authenticate Owner A
     const authOwnerA = await ownerAClient.auth.signInWithPassword({
-      email: "testowner@amarmenu.com",
-      password: "password123",
+      email: creds.restaurant_a.owner.email,
+      password: creds.restaurant_a.owner.password,
     });
     if (authOwnerA.error) throw new Error(`Owner A auth failed: ${authOwnerA.error.message}`);
 
     // Authenticate Super Admin
-    const creds = getTestCredentials();
     const authAdmin = await adminClient.auth.signInWithPassword({
       email: creds.super_admin.email,
       password: creds.super_admin.password,
@@ -50,14 +51,14 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
     const { data: staffA } = await ownerAClient
       .from("restaurant_staff")
       .select("id, restaurant_id")
-      .eq("email", "testowner@amarmenu.com")
+      .eq("email", creds.restaurant_a.owner.email)
       .single();
     restAId = (staffA as { restaurant_id: string; id: string }).restaurant_id;
     staffAOwnerId = (staffA as { restaurant_id: string; id: string }).id;
 
     // Ensure waiter user exists and is confirmed in auth.users
-    const waiterEmail = "testwaiter@amarmenu.com";
-    const waiterPassword = "password123";
+    const waiterEmail = creds.restaurant_a.waiter.email;
+    const waiterPassword = creds.restaurant_a.waiter.password;
 
     const waiterAuth = await waiterAClient.auth.signInWithPassword({
       email: waiterEmail,

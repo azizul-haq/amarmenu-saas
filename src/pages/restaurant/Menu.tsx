@@ -210,6 +210,9 @@ const Menu: React.FC = () => {
                       src={item.image_url}
                       alt={item.name}
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
                     />
                     <div className="absolute top-3 right-3 flex gap-1">
                       <Badge variant={item.is_available ? "success" : "neutral"}>

@@ -37,7 +37,11 @@ const CustomerMenuContent: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const tableToken = searchParams.get("table") || searchParams.get("token");
+
+  // Priority: if ?token= is provided, use that. Fallback to ?table= if passed as token.
+  const tokenParam = searchParams.get("token");
+  const tableParam = searchParams.get("table");
+  const activeToken = tokenParam || tableParam;
 
   const [lang, setLang] = useState<"en" | "bn">("en");
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
@@ -67,68 +71,141 @@ const CustomerMenuContent: React.FC = () => {
   } | null>(null);
   const [tableError, setTableError] = useState<string | null>(null);
 
-  // Load restaurant
+  // Load restaurant & menu items with guaranteed setLoading(false)
   useEffect(() => {
-    loadRestaurant();
-  }, [slug]);
+    let isMounted = true;
+    let subscription: { unsubscribe: () => void } | null = null;
 
-  // Subscribe to real-time menu items
-  useEffect(() => {
-    if (restaurant?.id) {
-      const subscription = subscribeToMenuItems(restaurant.id, (data) => {
-        setMenuItems(data);
-        setLoading(false);
-      });
+    const loadData = async () => {
+      if (!slug) {
+        if (isMounted) setLoading(false);
+        return;
+      }
 
-      return () => {
+      setLoading(true);
+      try {
+        // 1. Fetch restaurant
+        const { data: restData, error: restError } = await supabase
+          .from("restaurants")
+          .select(
+            "id, name, name_bn, slug, address, city, phone, restaurant_type, logo_url, qr_code_url, currency, currency_symbol, default_vat_rate, service_charge_rate, status, is_active, created_at, updated_at"
+          )
+          .eq("slug", slug)
+          .eq("is_active", true)
+          .maybeSingle();
+
+        if (restError || !restData) {
+          console.warn("Restaurant not found:", restError);
+          if (isMounted) setRestaurant(null);
+          return;
+        }
+
+        if (isMounted) {
+          setRestaurant(restData as unknown as Restaurant);
+        }
+
+        // 2. Fetch categories map for display
+        const { data: catData } = await supabase
+          .from("menu_categories")
+          .select("id, name, name_bn")
+          .eq("restaurant_id", restData.id)
+          .is("deleted_at", null)
+          .order("display_order", { ascending: true });
+
+        const catMap = new Map<string, { name: string; name_bn?: string }>();
+        if (catData) {
+          for (const c of catData) {
+            catMap.set(c.id, { name: c.name, name_bn: c.name_bn });
+          }
+        }
+
+        // 3. Fetch menu items directly
+        const { data: itemsData, error: itemsError } = await supabase
+          .from("menu_items")
+          .select("*")
+          .eq("restaurant_id", restData.id)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false });
+
+        if (itemsError) {
+          console.warn("Failed to load menu items directly:", itemsError);
+        }
+
+        if (isMounted && itemsData) {
+          const enriched = itemsData.map((item) => {
+            const cat = item.category_id ? catMap.get(item.category_id) : undefined;
+            return {
+              ...item,
+              category: item.category || cat?.name || "General",
+            };
+          });
+          setMenuItems(enriched as MenuItem[]);
+        }
+
+        // 4. Realtime subscription for live updates
+        subscription = subscribeToMenuItems(restData.id, (realtimeItems) => {
+          if (!isMounted) return;
+          const enriched = realtimeItems.map((item) => {
+            const cat = item.category_id ? catMap.get(item.category_id) : undefined;
+            return {
+              ...item,
+              category: item.category || cat?.name || "General",
+            };
+          });
+          setMenuItems(enriched as MenuItem[]);
+        });
+      } catch (err) {
+        console.error("Error loading menu data:", err);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+      if (subscription) {
         subscription.unsubscribe();
-      };
-    }
-  }, [restaurant]);
-
-  const loadRestaurant = async () => {
-    if (!slug) return;
-
-    const { data, error } = await supabase
-      .from("restaurants")
-      .select(
-        "id, name, name_bn, slug, address, city, phone, restaurant_type, logo_url, qr_code_url, currency, currency_symbol, default_vat_rate, service_charge_rate, status, is_active, created_at, updated_at"
-      )
-      .eq("slug", slug)
-      .eq("is_active", true)
-      .single();
-
-    if (error || !data) {
-      console.error("Restaurant not found");
-      setLoading(false);
-      return;
-    }
-
-    setRestaurant(data as unknown as Restaurant);
-  };
+      }
+    };
+  }, [slug]);
 
   // Verify Table QR Token if present
   useEffect(() => {
-    if (!slug || !tableToken) return;
+    if (!slug || !activeToken) {
+      setDetectedTable(null);
+      setTableError(null);
+      return;
+    }
 
     const verifyToken = async () => {
-      const res = await verifyTableQRToken(slug, tableToken);
-      if (res.valid && res.table) {
-        setDetectedTable(res.table);
-        setTableError(null);
-      } else {
+      try {
+        const res = await verifyTableQRToken(slug, activeToken);
+        if (res.valid && res.table) {
+          setDetectedTable(res.table);
+          setTableError(null);
+        } else {
+          setDetectedTable(null);
+          if (tokenParam || (tableParam && tableParam.length > 10)) {
+            setTableError(
+              res.error ||
+                (lang === "bn"
+                  ? "অকার্যকর বা মেয়াদোত্তীর্ণ টেবিল QR কোড। অনুগ্রহ করে পুনরায় স্ক্যান করুন।"
+                  : "Invalid or expired table QR code. Please scan the QR code on your table again.")
+            );
+          }
+        }
+      } catch (err) {
+        console.warn("verifyTableQRToken error:", err);
         setDetectedTable(null);
-        setTableError(
-          res.error ||
-            (lang === "bn"
-              ? "অকার্যকর বা মেয়াদোত্তীর্ণ টেবিল QR কোড। অনুগ্রহ করে পুনরায় স্ক্যান করুন।"
-              : "Invalid or expired table QR code. Please scan the QR code on your table again.")
-        );
       }
     };
 
     verifyToken();
-  }, [slug, tableToken, lang]);
+  }, [slug, activeToken, tokenParam, tableParam, lang]);
 
   const categories = [
     "all",
@@ -315,18 +392,29 @@ const CustomerMenuContent: React.FC = () => {
                   className="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 flex flex-col justify-between"
                 >
                   <div>
-                    <div className="relative h-36 bg-gray-100">
+                    <div className="relative h-36 bg-gray-100 overflow-hidden">
                       {item.image_url ? (
                         <img
                           src={item.image_url}
                           alt={item.name}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
+                          loading="lazy"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            target.onerror = null;
+                            target.style.display = "none";
+                            const fallback = target.nextElementSibling as HTMLElement;
+                            if (fallback) fallback.style.display = "flex";
+                          }}
                         />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <Package className="w-10 h-10 text-gray-300" />
-                        </div>
-                      )}
+                      ) : null}
+                      <div
+                        className={`w-full h-full flex items-center justify-center bg-gray-100 ${
+                          item.image_url ? "hidden" : "flex"
+                        }`}
+                      >
+                        <Package className="w-10 h-10 text-gray-300" />
+                      </div>
                       {!item.is_available && (
                         <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                           <span className="bg-black/80 text-white text-[11px] font-bold px-2 py-1 rounded">
@@ -420,7 +508,7 @@ const CustomerMenuContent: React.FC = () => {
         restaurantId={restaurant.id}
         detectedTable={detectedTable}
         tableError={tableError}
-        qrToken={tableToken || undefined}
+        qrToken={activeToken || undefined}
         onClose={() => setShowCheckout(false)}
         onSuccess={(orderId) => {
           clearCart();
@@ -644,6 +732,9 @@ const ItemCustomizationModal: React.FC<ItemCustomizationModalProps> = ({
             src={item.image_url}
             alt={item.name}
             className="w-full h-44 object-cover rounded-xl"
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
           />
         )}
 
@@ -837,6 +928,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
         name: item.name,
         quantity: item.quantity,
         base_price: item.base_price,
+        client_price: item.itemTotal,
         selected_size: item.selectedSize
           ? { name: item.selectedSize.name, price: item.selectedSize.price }
           : undefined,
@@ -844,11 +936,11 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
           name: a.name,
           price: a.price,
         })),
-        item_total: item.itemTotal,
+        item_total: Number((item.itemTotal * item.quantity).toFixed(2)),
       })),
-      subtotal,
-      tax,
-      total,
+      subtotal: Number(subtotal.toFixed(2)),
+      tax: Number(tax.toFixed(2)),
+      total: Number(total.toFixed(2)),
       customer_notes: validData.customer_notes,
     };
 

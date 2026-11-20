@@ -130,21 +130,6 @@ const LoginPage: React.FC = () => {
             <Alert type="error" message={error} className="mb-6" />
           )}
 
-          {/* Demo Credentials */}
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm font-semibold text-blue-800 mb-2">
-              🎯 Demo Account - Try it out!
-            </p>
-            <div className="text-sm text-blue-700 space-y-1">
-              <p>
-                <span className="font-medium">Email:</span>{" "}
-                testowner@amarmenu.com
-              </p>
-              <p>
-                <span className="font-medium">Password:</span> password123
-              </p>
-            </div>
-          </div>
 
           {/* Login Form */}
           <form onSubmit={handleSubmit} className="space-y-4">

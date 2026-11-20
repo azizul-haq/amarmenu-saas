@@ -20,8 +20,20 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 }) => {
   const { user, role, hasPermission, loading } = useAuth();
   const location = useLocation();
+  const [hasTimedOut, setHasTimedOut] = React.useState(false);
 
-  if (loading) {
+  React.useEffect(() => {
+    if (!loading) {
+      setHasTimedOut(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setHasTimedOut(true);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [loading]);
+
+  if (loading && !hasTimedOut) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-bg-subtle">
         <Loading text="Authenticating..." />

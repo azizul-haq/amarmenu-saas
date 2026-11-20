@@ -35,6 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [permissions, setPermissions] = useState<string[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
+  // Load user profile & role from the database
   const loadUserProfile = useCallback(async (currentUser: User): Promise<{
     role: UserRole;
     restaurant: Restaurant | null;
@@ -142,55 +143,101 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user, loadUserProfile]);
 
+  // 1. Initial Session & Auth State Listener (SYNCHRONOUS ONLY to avoid Supabase JS v2 deadlock)
   useEffect(() => {
     let mounted = true;
 
-    // Get initial session
+    // Get initial session on boot
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
-
-      if (session?.user) {
-        loadUserProfile(session.user).finally(() => {
-          if (mounted) setLoading(false);
-        });
-      } else {
-        setPermissions([]);
+      if (!session?.user) {
         setLoading(false);
       }
+    }).catch((err) => {
+      console.warn("Failed to get initial auth session:", err);
+      if (mounted) setLoading(false);
     });
 
     // Subscribe to auth state changes
+    // CRITICAL FIX: DO NOT AWAIT DATABASE QUERIES SYNCHRONOUSLY INSIDE onAuthStateChange.
+    // That causes a well-known internal mutex deadlock in Supabase JS v2!
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((_event, newSession) => {
       if (!mounted) return;
       setSession(newSession);
       setUser(newSession?.user ?? null);
 
-      if (newSession?.user) {
-        await loadUserProfile(newSession.user);
-      } else {
+      if (!newSession?.user) {
+        // Immediate clean wipe on sign out
         setProfile(null);
         setPlatformAdmin(null);
         setRole(null);
         setRestaurantId(null);
         setRestaurant(null);
         setPermissions([]);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [loadUserProfile]);
+  }, []);
 
+  // 2. Separate Effect to Load Profile: Triggered when user?.id changes (Lock-Free)
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+
+    // Hard safety timeout: Guaranteed to clear the "Authenticating..." spinner after 4 seconds
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) {
+        console.warn("Auth load safety timeout reached - unblocking UI");
+        setLoading(false);
+      }
+    }, 4000);
+
+    loadUserProfile(user)
+      .catch((err) => {
+        console.error("loadUserProfile error:", err);
+      })
+      .finally(() => {
+        clearTimeout(safetyTimer);
+        if (isMounted) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+      clearTimeout(safetyTimer);
+    };
+  }, [user?.id, loadUserProfile]);
+
+  // Sign In with automatic cleanup of previous session
   const signIn = async (identifier: string, password: string) => {
     setLoading(true);
     try {
+      // If an existing session is lingering, cleanly sign it out first
+      const { data: existingSession } = await supabase.auth.getSession();
+      if (existingSession?.session) {
+        try {
+          await supabase.auth.signOut();
+        } catch {
+          // Ignore background signout errors
+        }
+      }
+
       let loginEmail = identifier.trim().toLowerCase();
       // Handle phone login: normalize BD phone number and target synthetic staff email
       const digits = identifier.replace(/\D/g, "");
@@ -212,7 +259,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error) {
-        setLoading(false);
         return { success: false, error: error.message };
       }
 
@@ -224,20 +270,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resolvedRole = res.role;
       }
 
-      setLoading(false);
       return { success: true, role: resolvedRole };
     } catch (err: unknown) {
-      setLoading(false);
       const message = err instanceof Error ? err.message : "Failed to sign in";
       return { success: false, error: message };
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Sign Out with guaranteed state clearing and timeout race
   const signOut = async () => {
     setLoading(true);
     try {
-      await supabase.auth.signOut();
-      // Clear legacy storage items if any exist
+      // 1. Immediately wipe local storage and memory state
       localStorage.removeItem("user");
       localStorage.removeItem("admin");
       localStorage.removeItem("current_restaurant");
@@ -249,6 +295,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setRestaurantId(null);
       setRestaurant(null);
       setPermissions([]);
+
+      // 2. Call Supabase signOut with a 2-second timeout race to prevent network freeze
+      await Promise.race([
+        supabase.auth.signOut(),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
     } catch (err) {
       console.error("Sign out error:", err);
     } finally {

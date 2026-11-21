@@ -8,6 +8,7 @@ const corsHeaders = {
 
 interface InviteStaffPayload {
   action?: "invite" | "create" | "update" | "toggle_active" | "reset_password" | "delete";
+  restaurant_id?: string;
   staff_id?: string;
   full_name?: string;
   phone?: string;
@@ -55,11 +56,13 @@ serve(async (req: Request) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!supabaseUrl || !supabaseServiceRoleKey) {
-      throw new Error("Missing Supabase environment variables on server");
+      return new Response(
+        JSON.stringify({ error: "Missing Supabase server configuration" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     // 1. Validate Bearer token
@@ -71,7 +74,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // 2. Initialize Privileged Service Role Client (Edge server only)
+    // 2. Initialize Privileged Service Role Client
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
@@ -84,61 +87,109 @@ serve(async (req: Request) => {
 
     if (authError || !callerUser) {
       return new Response(
-        JSON.stringify({ error: "Invalid or expired session" }),
+        JSON.stringify({ error: "Invalid or expired session. Please log in again." }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 3. Resolve caller's active restaurant_staff record and permissions
+    // 3. Resolve caller permissions: Super Admin or Restaurant Owner
+    const { data: platformAdmin } = await supabaseAdmin
+      .from("platform_admins")
+      .select("id, role, full_name, email")
+      .or(`auth_user_id.eq.${callerUser.id},email.eq.${callerUser.email}`)
+      .eq("is_active", true)
+      .maybeSingle();
 
-    const { data: callerStaff, error: callerStaffError } = await supabaseAdmin
+    const isSuperAdmin = !!platformAdmin;
+
+    let callerStaff = null;
+    // Check caller in restaurant_staff by auth_user_id
+    const { data: staffByAuthId } = await supabaseAdmin
       .from("restaurant_staff")
-      .select("id, restaurant_id, role, full_name, is_active")
+      .select("id, restaurant_id, role, full_name, is_active, auth_user_id")
       .eq("auth_user_id", callerUser.id)
       .eq("is_active", true)
       .maybeSingle();
 
-    if (callerStaffError || !callerStaff) {
-      return new Response(
-        JSON.stringify({ error: "Forbidden: Caller is not an active staff member" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    if (staffByAuthId) {
+      callerStaff = staffByAuthId;
+    } else if (callerUser.email) {
+      // Fallback: match by email and self-heal auth_user_id link
+      const { data: staffByEmail } = await supabaseAdmin
+        .from("restaurant_staff")
+        .select("id, restaurant_id, role, full_name, is_active, auth_user_id")
+        .eq("email", callerUser.email)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (staffByEmail) {
+        callerStaff = staffByEmail;
+        if (!staffByEmail.auth_user_id) {
+          await supabaseAdmin
+            .from("restaurant_staff")
+            .update({ auth_user_id: callerUser.id })
+            .eq("id", staffByEmail.id);
+        }
+      }
     }
 
-    // Only owner role possesses manage_staff permission
-    if (callerStaff.role !== "owner") {
-      return new Response(
-        JSON.stringify({ error: "Forbidden: Only restaurant owners can manage staff" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // Fallback: If still not in restaurant_staff, check if caller is owner in restaurants table
+    if (!callerStaff && callerUser.email && !isSuperAdmin) {
+      const { data: restByEmail } = await supabaseAdmin
+        .from("restaurants")
+        .select("id, name, owner_name, email, phone")
+        .eq("email", callerUser.email)
+        .maybeSingle();
+
+      if (restByEmail) {
+        const { data: newOwnerStaff } = await supabaseAdmin
+          .from("restaurant_staff")
+          .upsert(
+            {
+              restaurant_id: restByEmail.id,
+              auth_user_id: callerUser.id,
+              full_name: restByEmail.owner_name || "Restaurant Owner",
+              email: restByEmail.email,
+              phone: restByEmail.phone,
+              role: "owner",
+              is_active: true,
+            },
+            { onConflict: "restaurant_id,phone" }
+          )
+          .select()
+          .single();
+
+        callerStaff = newOwnerStaff;
+      }
     }
 
-    // Tenant binding is derived strictly from caller's staff record (never from body)
-    const targetRestaurantId = callerStaff.restaurant_id;
-
-    const body: InviteStaffPayload = await req.json();
+    const body: InviteStaffPayload = await req.json().catch(() => ({}));
     const action = body.action || "invite";
 
-    // 4. Rate Limiting Check (Max 20 staff management operations per 10 minutes, DB-backed keyed by caller user id)
-    const { data: isAllowed, error: rlErr } = await supabaseAdmin.rpc(
-      "check_and_increment_rate_limit",
-      {
-        p_bucket: "invite-staff",
-        p_identifier: callerUser.id,
-        p_max_attempts: 20,
-        p_window_seconds: 600,
-      }
-    );
+    let targetRestaurantId: string;
+    let actorRole: string;
+    let actorName: string;
 
-    if (rlErr) {
-      console.warn("Rate limit check warning:", rlErr.message);
-    } else if (isAllowed === false) {
-      return new Response(
-        JSON.stringify({
-          error: "Rate limit exceeded. Maximum 20 staff actions per 10 minutes. Please try again later.",
-        }),
-        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    if (isSuperAdmin) {
+      targetRestaurantId = body.restaurant_id || callerStaff?.restaurant_id;
+      if (!targetRestaurantId) {
+        return new Response(
+          JSON.stringify({ error: "Missing restaurant_id for Super Admin action" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      actorRole = "super_admin";
+      actorName = platformAdmin.full_name || "Super Admin";
+    } else {
+      if (!callerStaff || callerStaff.role !== "owner") {
+        return new Response(
+          JSON.stringify({ error: "Forbidden: Only restaurant owners or super admins can manage staff" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      targetRestaurantId = callerStaff.restaurant_id;
+      actorRole = callerStaff.role;
+      actorName = callerStaff.full_name || "Owner";
     }
 
     // =========================================================================
@@ -175,44 +226,47 @@ serve(async (req: Request) => {
 
       const tempPassword = generateSecureTempPassword();
 
-      const { error: resetError } = await supabaseAdmin.auth.admin.updateUserById(
-        targetStaff.auth_user_id,
-        {
-          password: tempPassword,
-          app_metadata: {
-            must_change_password: true,
-            restaurant_id: targetRestaurantId,
-          },
-        }
-      );
-
-      if (resetError) {
-        return new Response(
-          JSON.stringify({ error: `Failed to reset password: ${resetError.message}` }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      if (targetStaff.auth_user_id) {
+        const { error: resetError } = await supabaseAdmin.auth.admin.updateUserById(
+          targetStaff.auth_user_id,
+          {
+            password: tempPassword,
+            app_metadata: {
+              must_change_password: true,
+              restaurant_id: targetRestaurantId,
+            },
+          }
         );
+
+        if (resetError) {
+          return new Response(
+            JSON.stringify({ error: `Failed to reset password: ${resetError.message}` }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
       }
 
-      // Record audit log (NEVER logs or writes tempPassword)
-      await supabaseAdmin.from("audit_logs").insert({
-        restaurant_id: targetRestaurantId,
-        actor_id: callerUser.id,
-        actor_role: callerStaff.role,
-        actor_name: callerStaff.full_name,
-        action: "staff_password_reset",
-        entity_type: "restaurant_staff",
-        entity_id: targetStaff.id,
-        new_values: {
-          staff_id: targetStaff.id,
-          role: targetStaff.role,
-          full_name: targetStaff.full_name,
-        },
-      });
+      // Record audit log
+      try {
+        await supabaseAdmin.from("audit_logs").insert({
+          restaurant_id: targetRestaurantId,
+          actor_id: callerUser.id,
+          actor_role: actorRole,
+          actor_name: actorName,
+          action: "staff_password_reset",
+          entity_type: "restaurant_staff",
+          entity_id: targetStaff.id,
+          reason: "Owner generated a temporary login password",
+          new_values: { staff_id: targetStaff.id, full_name: targetStaff.full_name },
+        });
+      } catch (logErr) {
+        console.warn("Audit log warning:", logErr);
+      }
 
       return new Response(
         JSON.stringify({
           success: true,
-          message: "Temporary password generated successfully. Hand this to the employee.",
+          message: `Temporary password generated for ${targetStaff.full_name}`,
           tempPassword,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -220,7 +274,7 @@ serve(async (req: Request) => {
     }
 
     // =========================================================================
-    // ACTION: Toggle Active Status (Deactivate / Reactivate with Auth Ban)
+    // ACTION: Toggle Active Status
     // =========================================================================
     if (action === "toggle_active") {
       if (!body.staff_id) {
@@ -271,7 +325,6 @@ serve(async (req: Request) => {
         }
       }
 
-      // Update restaurant_staff
       const { error: updateErr } = await supabaseAdmin
         .from("restaurant_staff")
         .update({
@@ -283,33 +336,36 @@ serve(async (req: Request) => {
       if (updateErr) {
         return new Response(
           JSON.stringify({ error: `Failed to update status: ${updateErr.message}` }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      // If deactivated: ban the auth user (876000h = ~100 years). If reactivated: remove ban ('none').
+      // If deactivated: ban the auth user. If reactivated: remove ban.
       if (targetStaff.auth_user_id) {
         await supabaseAdmin.auth.admin.updateUserById(targetStaff.auth_user_id, {
           ban_duration: newActiveStatus ? "none" : "876000h",
         });
       }
 
-      // Audit log
-      await supabaseAdmin.from("audit_logs").insert({
-        restaurant_id: targetRestaurantId,
-        actor_id: callerUser.id,
-        actor_role: callerStaff.role,
-        actor_name: callerStaff.full_name,
-        action: "staff_status_toggled",
-        entity_type: "restaurant_staff",
-        entity_id: targetStaff.id,
-        new_values: {
-          staff_id: targetStaff.id,
-          full_name: targetStaff.full_name,
-          is_active: newActiveStatus,
-          banned: !newActiveStatus,
-        },
-      });
+      try {
+        await supabaseAdmin.from("audit_logs").insert({
+          restaurant_id: targetRestaurantId,
+          actor_id: callerUser.id,
+          actor_role: actorRole,
+          actor_name: actorName,
+          action: "staff_status_toggled",
+          entity_type: "restaurant_staff",
+          entity_id: targetStaff.id,
+          reason: `Staff status changed to ${newActiveStatus ? "Active" : "Inactive"}`,
+          new_values: {
+            staff_id: targetStaff.id,
+            full_name: targetStaff.full_name,
+            is_active: newActiveStatus,
+          },
+        });
+      } catch (logErr) {
+        console.warn("Audit log warning:", logErr);
+      }
 
       return new Response(
         JSON.stringify({
@@ -322,7 +378,7 @@ serve(async (req: Request) => {
     }
 
     // =========================================================================
-    // ACTION: Delete Staff (Permanent Removal from Staff & Auth)
+    // ACTION: Delete Staff (Permanent Removal from DB & Supabase Auth)
     // =========================================================================
     if (action === "delete") {
       if (!body.staff_id) {
@@ -370,7 +426,7 @@ serve(async (req: Request) => {
         }
       }
 
-      // 1. Delete from restaurant_staff
+      // 1. Delete record from restaurant_staff
       const { error: delStaffErr } = await supabaseAdmin
         .from("restaurant_staff")
         .delete()
@@ -379,33 +435,38 @@ serve(async (req: Request) => {
       if (delStaffErr) {
         return new Response(
           JSON.stringify({ error: `Failed to remove staff record: ${delStaffErr.message}` }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      // 2. Permanently delete auth user so they can NEVER log in again
+      // 2. Permanently delete auth user so credentials cannot be used again
       if (targetStaff.auth_user_id) {
         const { error: authDelErr } = await supabaseAdmin.auth.admin.deleteUser(targetStaff.auth_user_id);
         if (authDelErr) {
-          console.warn("Auth user deletion warning:", authDelErr.message);
+          console.warn("Auth user deletion notice:", authDelErr.message);
         }
       }
 
-      // 3. Audit log
-      await supabaseAdmin.from("audit_logs").insert({
-        restaurant_id: targetRestaurantId,
-        actor_id: callerUser.id,
-        actor_role: callerStaff.role,
-        actor_name: callerStaff.full_name,
-        action: "staff_deleted",
-        entity_type: "restaurant_staff",
-        entity_id: targetStaff.id,
-        new_values: {
-          staff_id: targetStaff.id,
-          full_name: targetStaff.full_name,
-          role: targetStaff.role,
-        },
-      });
+      // 3. Write audit log
+      try {
+        await supabaseAdmin.from("audit_logs").insert({
+          restaurant_id: targetRestaurantId,
+          actor_id: callerUser.id,
+          actor_role: actorRole,
+          actor_name: actorName,
+          action: "staff_deleted",
+          entity_type: "restaurant_staff",
+          entity_id: targetStaff.id,
+          reason: "Staff permanently deleted by owner",
+          new_values: {
+            staff_id: targetStaff.id,
+            full_name: targetStaff.full_name,
+            role: targetStaff.role,
+          },
+        });
+      } catch (logErr) {
+        console.warn("Audit log warning:", logErr);
+      }
 
       return new Response(
         JSON.stringify({
@@ -429,7 +490,7 @@ serve(async (req: Request) => {
 
       const { data: targetStaff, error: targetError } = await supabaseAdmin
         .from("restaurant_staff")
-        .select("id, restaurant_id, auth_user_id, role, full_name, phone, is_active")
+        .select("id, restaurant_id, role, full_name, phone, email, is_active")
         .eq("id", body.staff_id)
         .eq("restaurant_id", targetRestaurantId)
         .maybeSingle();
@@ -438,48 +499,6 @@ serve(async (req: Request) => {
         return new Response(
           JSON.stringify({ error: "Staff member not found in your restaurant" }),
           { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Enforce: caller cannot change their own role
-      if (body.role && targetStaff.auth_user_id === callerUser.id && body.role !== targetStaff.role) {
-        return new Response(
-          JSON.stringify({ error: "Safety rule: You cannot change your own role" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Enforce: role cannot be assigned to 'owner'
-      if (body.role && body.role === "owner" && targetStaff.role !== "owner") {
-        return new Response(
-          JSON.stringify({ error: "Cannot assign 'owner' role via staff management" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Enforce: cannot demote the last owner
-      if (targetStaff.role === "owner" && body.role && body.role !== "owner") {
-        const { count: ownerCount } = await supabaseAdmin
-          .from("restaurant_staff")
-          .select("id", { count: "exact", head: true })
-          .eq("restaurant_id", targetRestaurantId)
-          .eq("role", "owner")
-          .eq("is_active", true);
-
-        if ((ownerCount || 0) <= 1) {
-          return new Response(
-            JSON.stringify({ error: "Safety rule: A restaurant must always keep at least one active owner" }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-      }
-
-      if (body.role && !ALLOWED_STAFF_ROLES.includes(body.role) && body.role !== targetStaff.role) {
-        return new Response(
-          JSON.stringify({
-            error: `Invalid role: ${body.role}. Allowed roles: ${ALLOWED_STAFF_ROLES.join(", ")}`,
-          }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
@@ -492,6 +511,14 @@ serve(async (req: Request) => {
       }
 
       if (body.role) {
+        if (!ALLOWED_STAFF_ROLES.includes(body.role) && body.role !== targetStaff.role) {
+          return new Response(
+            JSON.stringify({
+              error: `Invalid role: ${body.role}. Allowed roles: ${ALLOWED_STAFF_ROLES.join(", ")}`,
+            }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
         updateFields.role = body.role;
       }
 
@@ -504,7 +531,6 @@ serve(async (req: Request) => {
           );
         }
 
-        // Check duplicate phone across other active staff
         const { data: existingStaff } = await supabaseAdmin
           .from("restaurant_staff")
           .select("id")
@@ -515,8 +541,8 @@ serve(async (req: Request) => {
 
         if (existingStaff) {
           return new Response(
-            JSON.stringify({ error: "This phone number is already registered to another active staff member" }),
-            { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            JSON.stringify({ error: "This phone number is already registered to another active staff member." }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
@@ -533,26 +559,30 @@ serve(async (req: Request) => {
       if (updateErr) {
         return new Response(
           JSON.stringify({ error: `Update failed: ${updateErr.message}` }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      // Audit log
-      await supabaseAdmin.from("audit_logs").insert({
-        restaurant_id: targetRestaurantId,
-        actor_id: callerUser.id,
-        actor_role: callerStaff.role,
-        actor_name: callerStaff.full_name,
-        action: "staff_updated",
-        entity_type: "restaurant_staff",
-        entity_id: targetStaff.id,
-        new_values: updateFields,
-      });
+      try {
+        await supabaseAdmin.from("audit_logs").insert({
+          restaurant_id: targetRestaurantId,
+          actor_id: callerUser.id,
+          actor_role: actorRole,
+          actor_name: actorName,
+          action: "staff_updated",
+          entity_type: "restaurant_staff",
+          entity_id: targetStaff.id,
+          reason: "Staff details updated by owner",
+          new_values: updateFields,
+        });
+      } catch (logErr) {
+        console.warn("Audit log warning:", logErr);
+      }
 
       return new Response(
         JSON.stringify({
           success: true,
-          message: `Staff member ${updatedStaff.full_name} updated successfully`,
+          message: `Staff member ${updatedStaff.full_name} updated successfully.`,
           staff: updatedStaff,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -566,7 +596,7 @@ serve(async (req: Request) => {
 
     if (!full_name || !full_name.trim()) {
       return new Response(
-        JSON.stringify({ error: "Missing required parameter: full_name" }),
+        JSON.stringify({ error: "Missing required field: Full Name is required." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -574,7 +604,7 @@ serve(async (req: Request) => {
     if (!role || !ALLOWED_STAFF_ROLES.includes(role)) {
       return new Response(
         JSON.stringify({
-          error: `Invalid role: ${role}. Cannot invite owner. Allowed roles are: ${ALLOWED_STAFF_ROLES.join(", ")}`,
+          error: `Invalid role: ${role}. Allowed roles are: ${ALLOWED_STAFF_ROLES.join(", ")}`,
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -594,12 +624,12 @@ serve(async (req: Request) => {
 
     if (!staffEmail && !cleanPhone) {
       return new Response(
-        JSON.stringify({ error: "Either Email or Phone number is required for staff account" }),
+        JSON.stringify({ error: "Either Email or Phone number is required for staff account." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Check duplicate phone across active staff
+    // 1. Check duplicate phone in restaurant_staff
     if (cleanPhone) {
       const { data: existingStaffPhone } = await supabaseAdmin
         .from("restaurant_staff")
@@ -613,12 +643,12 @@ serve(async (req: Request) => {
           JSON.stringify({
             error: "This phone number is already registered to an active staff member.",
           }),
-          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
     }
 
-    // Check duplicate email across active staff
+    // 2. Check duplicate email in restaurant_staff
     if (staffEmail) {
       const { data: existingStaffEmail } = await supabaseAdmin
         .from("restaurant_staff")
@@ -630,50 +660,51 @@ serve(async (req: Request) => {
       if (existingStaffEmail) {
         return new Response(
           JSON.stringify({
-            error: "This email address is already registered to an active staff member.",
+            error: "A user with this email already exists.",
           }),
-          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
     }
 
-    // Plan Staff Limit Check
+    // 3. Plan Staff Limit Check
     const { data: restaurantRow } = await supabaseAdmin
       .from("restaurants")
       .select("subscription_plan")
       .eq("id", targetRestaurantId)
-      .single();
+      .maybeSingle();
 
-    const planCode = restaurantRow?.subscription_plan || "free_trial";
+    const planCode = restaurantRow?.subscription_plan || "growth";
     const { data: planRow } = await supabaseAdmin
       .from("plans")
       .select("max_staff")
       .ilike("name", planCode)
       .maybeSingle();
 
-    const maxStaffLimit = planRow?.max_staff || 5;
+    if (planRow && planRow.max_staff !== null && planRow.max_staff !== undefined) {
+      const maxStaffLimit = planRow.max_staff;
+      const { count: activeStaffCount } = await supabaseAdmin
+        .from("restaurant_staff")
+        .select("id", { count: "exact", head: true })
+        .eq("restaurant_id", targetRestaurantId)
+        .eq("is_active", true);
 
-    const { count: activeStaffCount } = await supabaseAdmin
-      .from("restaurant_staff")
-      .select("id", { count: "exact", head: true })
-      .eq("restaurant_id", targetRestaurantId)
-      .eq("is_active", true);
-
-    if ((activeStaffCount || 0) >= maxStaffLimit) {
-      return new Response(
-        JSON.stringify({
-          error: `Staff limit (${maxStaffLimit}) reached for plan '${planCode}'. Please upgrade your subscription to add more staff.`,
-        }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      if ((activeStaffCount || 0) >= maxStaffLimit) {
+        return new Response(
+          JSON.stringify({
+            error: `Staff limit (${maxStaffLimit}) reached for your ${planCode} plan. Please upgrade your subscription to add more staff.`,
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
-    // Determine password: owner-assigned password or generated temp password
+    // 4. Setup credentials
     const hasCustomPassword = !!(password && password.trim().length >= 6);
     const userPassword = hasCustomPassword ? password!.trim() : generateSecureTempPassword();
     const finalEmail = staffEmail || `${cleanPhone!.replace(/\D/g, "")}@staff.amarmenu.internal`;
 
-    // Create auth user via admin API (so owner session in browser is untouched!)
+    // 5. Create Auth user via Admin API (Leaves owner's active session completely intact)
     const { data: authCreated, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
       email: finalEmail,
       phone: cleanPhone || undefined,
@@ -683,19 +714,26 @@ serve(async (req: Request) => {
       app_metadata: {
         must_change_password: !hasCustomPassword,
         restaurant_id: targetRestaurantId,
+        role: role,
       },
     });
 
-    if (authCreateError || !authCreated.user) {
+    if (authCreateError || !authCreated?.user) {
+      const rawMsg = authCreateError?.message || "Failed to create user account";
+      const isDuplicate = rawMsg.toLowerCase().includes("already") || rawMsg.toLowerCase().includes("duplicate");
       return new Response(
-        JSON.stringify({ error: `Auth creation failed: ${authCreateError?.message}` }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: isDuplicate
+            ? (staffEmail ? "A user with this email already exists." : "A user with this phone number already exists.")
+            : `Auth creation failed: ${rawMsg}`,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const newAuthUserId = authCreated.user.id;
 
-    // Insert into restaurant_staff
+    // 6. Insert into restaurant_staff
     const { data: newStaff, error: insertStaffError } = await supabaseAdmin
       .from("restaurant_staff")
       .insert({
@@ -715,27 +753,32 @@ serve(async (req: Request) => {
       await supabaseAdmin.auth.admin.deleteUser(newAuthUserId);
       return new Response(
         JSON.stringify({ error: `Staff registration failed: ${insertStaffError.message}` }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Write audit log (NEVER logs or writes password)
-    await supabaseAdmin.from("audit_logs").insert({
-      restaurant_id: targetRestaurantId,
-      actor_id: callerUser.id,
-      actor_role: callerStaff.role,
-      actor_name: callerStaff.full_name,
-      action: hasCustomPassword ? "staff_created" : "staff_invited",
-      entity_type: "restaurant_staff",
-      entity_id: newStaff.id,
-      new_values: {
-        staff_id: newStaff.id,
-        full_name: newStaff.full_name,
-        email: staffEmail,
-        phone: cleanPhone,
-        role,
-      },
-    });
+    // 7. Write audit log
+    try {
+      await supabaseAdmin.from("audit_logs").insert({
+        restaurant_id: targetRestaurantId,
+        actor_id: callerUser.id,
+        actor_role: actorRole,
+        actor_name: actorName,
+        action: hasCustomPassword ? "staff_created" : "staff_invited",
+        entity_type: "restaurant_staff",
+        entity_id: newStaff.id,
+        reason: hasCustomPassword ? "Staff created directly with password" : "Staff invited with temp password",
+        new_values: {
+          staff_id: newStaff.id,
+          full_name: newStaff.full_name,
+          email: staffEmail,
+          phone: cleanPhone,
+          role,
+        },
+      });
+    } catch (logErr) {
+      console.warn("Audit log warning:", logErr);
+    }
 
     return new Response(
       JSON.stringify({

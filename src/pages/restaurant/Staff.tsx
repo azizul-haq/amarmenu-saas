@@ -17,6 +17,7 @@ import { supabase } from "../../config/supabase";
 import { useAuth } from "../../context/AuthContext";
 import type { RestaurantStaff } from "../../config/supabase";
 import { copyToClipboard as copyTextToClipboard } from "../../utils/helpers";
+import { invokeStaffAction } from "../../services/staffService";
 
 export const StaffPage: React.FC = () => {
   const { user, restaurant, role: currentUserRole } = useAuth();
@@ -104,37 +105,27 @@ export const StaffPage: React.FC = () => {
     try {
       if (editingStaff) {
         // Update staff via Edge Function
-        const { data, error: fnError } = await supabase.functions.invoke("invite-staff", {
-          body: {
-            action: "update",
-            staff_id: editingStaff.id,
-            full_name: fullName.trim(),
-            phone: phone.trim() || undefined,
-            role: staffRole,
-          },
+        await invokeStaffAction({
+          action: "update",
+          staff_id: editingStaff.id,
+          restaurant_id: restaurant.id,
+          full_name: fullName.trim(),
+          phone: phone.trim() || undefined,
+          role: staffRole,
         });
-
-        if (fnError || data?.error) {
-          throw new Error(fnError?.message || data?.error || "Failed to update staff member");
-        }
 
         setSuccess(`Updated ${fullName.trim()} successfully.`);
       } else {
         // Invite/Create new staff via Edge Function
-        const { data, error: fnError } = await supabase.functions.invoke("invite-staff", {
-          body: {
-            action: "invite",
-            full_name: fullName.trim(),
-            phone: phone.trim(),
-            email: email.trim() || undefined,
-            password: password.trim() || undefined,
-            role: staffRole,
-          },
+        const data = await invokeStaffAction({
+          action: "invite",
+          restaurant_id: restaurant.id,
+          full_name: fullName.trim(),
+          phone: phone.trim(),
+          email: email.trim() || undefined,
+          password: password.trim() || undefined,
+          role: staffRole,
         });
-
-        if (fnError || data?.error) {
-          throw new Error(fnError?.message || data?.error || "Failed to invite staff member");
-        }
 
         if (password.trim()) {
           setSuccess(`Staff account created for ${fullName.trim()} (${staffRole}). They can now log in immediately.`);
@@ -174,17 +165,12 @@ export const StaffPage: React.FC = () => {
 
     try {
       const newActive = !staff.is_active;
-      const { data, error: fnError } = await supabase.functions.invoke("invite-staff", {
-        body: {
-          action: "toggle_active",
-          staff_id: staff.id,
-          is_active: newActive,
-        },
+      await invokeStaffAction({
+        action: "toggle_active",
+        staff_id: staff.id,
+        restaurant_id: restaurant?.id,
+        is_active: newActive,
       });
-
-      if (fnError || data?.error) {
-        throw new Error(fnError?.message || data?.error || "Failed to update staff status");
-      }
 
       setSuccess(
         `${staff.full_name} is now ${newActive ? "Active" : "Inactive (Auth access revoked)"}.`
@@ -213,18 +199,13 @@ export const StaffPage: React.FC = () => {
     setSuccess(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("invite-staff", {
-        body: {
-          action: "reset_password",
-          staff_id: staff.id,
-        },
+      const data = await invokeStaffAction({
+        action: "reset_password",
+        staff_id: staff.id,
+        restaurant_id: restaurant?.id,
       });
 
-      if (fnError || data?.error) {
-        throw new Error(fnError?.message || data?.error || "Failed to reset password");
-      }
-
-      if (data.tempPassword) {
+      if (data?.tempPassword) {
         setTempPasswordModal({
           isOpen: true,
           name: staff.full_name,
@@ -251,16 +232,11 @@ export const StaffPage: React.FC = () => {
     setSuccess(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("invite-staff", {
-        body: {
-          action: "delete",
-          staff_id: staff.id,
-        },
+      await invokeStaffAction({
+        action: "delete",
+        staff_id: staff.id,
+        restaurant_id: restaurant?.id,
       });
-
-      if (fnError || data?.error) {
-        throw new Error(fnError?.message || data?.error || "Failed to delete staff member");
-      }
 
       setSuccess(`Permanently removed staff member ${staff.full_name}.`);
       setDeleteConfirmStaff(null);

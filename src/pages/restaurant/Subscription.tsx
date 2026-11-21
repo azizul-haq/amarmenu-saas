@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   RefreshCw,
   XCircle,
+  Zap,
 } from "lucide-react";
 import { Card, Button, Loading } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
@@ -18,6 +19,7 @@ import type {
 } from "../../schemas/subscriptionSchema";
 import { formatCurrency } from "../../utils/helpers";
 import { SubmitPaymentModal } from "../../components/restaurant/SubmitPaymentModal";
+import { OnlineSubscriptionModal } from "../../components/restaurant/OnlineSubscriptionModal";
 
 export const SubscriptionPage: React.FC = () => {
   const { restaurant, restaurantId: authRestaurantId } = useAuth();
@@ -27,6 +29,7 @@ export const SubscriptionPage: React.FC = () => {
   const [restaurantId, setRestaurantId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
+  const [showOnlineModal, setShowOnlineModal] = useState<boolean>(false);
 
   const loadData = useCallback(async (rId: string) => {
     setLoading(true);
@@ -139,13 +142,23 @@ export const SubscriptionPage: React.FC = () => {
           </p>
         </div>
 
-        <Button
-          variant="primary"
-          icon={<CreditCard className="w-4 h-4" />}
-          onClick={() => setShowPaymentModal(true)}
-        >
-          Renew / Change Plan
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="primary"
+            icon={<Zap className="w-4 h-4 text-white" />}
+            onClick={() => setShowOnlineModal(true)}
+            className="bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-bold shadow-sm"
+          >
+            Renew / Upgrade Online
+          </Button>
+          <Button
+            variant="outline"
+            icon={<CreditCard className="w-4 h-4" />}
+            onClick={() => setShowPaymentModal(true)}
+          >
+            Manual Bank / TrxID
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -165,14 +178,16 @@ export const SubscriptionPage: React.FC = () => {
               submit your renewal payment immediately to prevent automated dashboard suspension.
             </p>
           </div>
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={() => setShowPaymentModal(true)}
-            className="shrink-0 ml-auto"
-          >
-            Pay Now
-          </Button>
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<Zap className="w-3.5 h-3.5" />}
+              onClick={() => setShowOnlineModal(true)}
+            >
+              Renew Online Now
+            </Button>
+          </div>
         </div>
       )}
 
@@ -350,6 +365,16 @@ export const SubscriptionPage: React.FC = () => {
           </table>
         </div>
       </Card>
+
+      {/* Online Instant Renewal Modal */}
+      {showOnlineModal && restaurantId && (
+        <OnlineSubscriptionModal
+          restaurantId={restaurantId}
+          currentPlan={subscription?.plan_code || "growth"}
+          onClose={() => setShowOnlineModal(false)}
+          onSuccess={() => loadData(restaurantId)}
+        />
+      )}
 
       {/* Submit Payment Modal */}
       {showPaymentModal && restaurantId && (

@@ -10,6 +10,7 @@ import {
   Copy,
   Check,
   Ban,
+  Trash2,
 } from "lucide-react";
 import { Card, Button, Input, Select, Modal, Alert, Loading } from "../../components/ui";
 import { supabase } from "../../config/supabase";
@@ -31,7 +32,11 @@ export const StaffPage: React.FC = () => {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
   const [staffRole, setStaffRole] = useState<string>("waiter");
+
+  // Delete modal state
+  const [deleteConfirmStaff, setDeleteConfirmStaff] = useState<RestaurantStaff | null>(null);
 
   // Temporary password modal state (for newly invited or password reset staff)
   const [tempPasswordModal, setTempPasswordModal] = useState<{
@@ -74,6 +79,7 @@ export const StaffPage: React.FC = () => {
     setFullName("");
     setEmail("");
     setPhone("");
+    setPassword("");
     setStaffRole("waiter");
     setIsModalOpen(true);
   };
@@ -83,6 +89,7 @@ export const StaffPage: React.FC = () => {
     setFullName(staff.full_name);
     setEmail(staff.email || "");
     setPhone(staff.phone || "");
+    setPassword("");
     setStaffRole(staff.role);
     setIsModalOpen(true);
   };
@@ -113,13 +120,14 @@ export const StaffPage: React.FC = () => {
 
         setSuccess(`Updated ${fullName.trim()} successfully.`);
       } else {
-        // Invite new staff via Edge Function
+        // Invite/Create new staff via Edge Function
         const { data, error: fnError } = await supabase.functions.invoke("invite-staff", {
           body: {
             action: "invite",
             full_name: fullName.trim(),
             phone: phone.trim(),
             email: email.trim() || undefined,
+            password: password.trim() || undefined,
             role: staffRole,
           },
         });
@@ -128,16 +136,19 @@ export const StaffPage: React.FC = () => {
           throw new Error(fnError?.message || data?.error || "Failed to invite staff member");
         }
 
-        setSuccess(`Invited ${fullName.trim()} as ${staffRole}.`);
-
-        // Display temporary password to owner
-        if (data.tempPassword) {
-          setTempPasswordModal({
-            isOpen: true,
-            name: fullName.trim(),
-            phone: phone.trim(),
-            tempPassword: data.tempPassword,
-          });
+        if (password.trim()) {
+          setSuccess(`Staff account created for ${fullName.trim()} (${staffRole}). They can now log in immediately.`);
+        } else {
+          setSuccess(`Invited ${fullName.trim()} as ${staffRole}.`);
+          // Display temporary password to owner
+          if (data?.tempPassword) {
+            setTempPasswordModal({
+              isOpen: true,
+              name: fullName.trim(),
+              phone: phone.trim(),
+              tempPassword: data.tempPassword,
+            });
+          }
         }
       }
 
@@ -223,6 +234,39 @@ export const StaffPage: React.FC = () => {
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to reset staff password";
+      setError(message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteStaff = async (staff: RestaurantStaff) => {
+    if (staff.role === "owner" || staff.auth_user_id === user?.id) {
+      setError("Cannot delete owner or your own account.");
+      return;
+    }
+
+    setActionLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("invite-staff", {
+        body: {
+          action: "delete",
+          staff_id: staff.id,
+        },
+      });
+
+      if (fnError || data?.error) {
+        throw new Error(fnError?.message || data?.error || "Failed to delete staff member");
+      }
+
+      setSuccess(`Permanently removed staff member ${staff.full_name}.`);
+      setDeleteConfirmStaff(null);
+      await fetchStaff();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to delete staff member";
       setError(message);
     } finally {
       setActionLoading(false);
@@ -422,6 +466,20 @@ export const StaffPage: React.FC = () => {
                           >
                             <RefreshCw className="w-4 h-4" />
                           </button>
+                          <button
+                            onClick={() => setDeleteConfirmStaff(member)}
+                            disabled={actionLoading || isCurrentUser || member.role === "owner"}
+                            className="p-1 text-slate-500 hover:text-rose-600 disabled:opacity-30 transition-colors"
+                            title={
+                              member.role === "owner"
+                                ? "Cannot delete restaurant owner"
+                                : isCurrentUser
+                                ? "Cannot delete yourself"
+                                : "Delete Staff Member"
+                            }
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       ) : (
                         <span className="text-xs text-slate-400">Read-only</span>
@@ -457,7 +515,18 @@ export const StaffPage: React.FC = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="e.g. rahim@restaurant.com"
-              helperText="Optional: if left blank, staff can log in using their phone number"
+              helperText="Staff can log in with this email or their phone number"
+            />
+          )}
+
+          {!editingStaff && (
+            <Input
+              label="Login Password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Min. 6 characters (e.g. staff123)"
+              helperText="Owner sets the password directly so staff can log in immediately (leave blank to auto-generate temporary password)"
             />
           )}
 
@@ -492,11 +561,48 @@ export const StaffPage: React.FC = () => {
               Cancel
             </Button>
             <Button type="submit" loading={actionLoading}>
-              {editingStaff ? "Save Role Changes" : "Send Invite & Generate Password"}
+              {editingStaff ? "Save Role Changes" : "Create Staff Account"}
             </Button>
           </div>
         </form>
       </Modal>
+
+      {/* Delete Staff Confirmation Modal */}
+      {deleteConfirmStaff && (
+        <Modal
+          isOpen={!!deleteConfirmStaff}
+          onClose={() => setDeleteConfirmStaff(null)}
+          title="Delete Staff Member"
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700">
+              Are you sure you want to permanently delete{" "}
+              <strong>{deleteConfirmStaff.full_name}</strong> ({deleteConfirmStaff.role})?
+            </p>
+            <div className="text-xs text-rose-700 bg-rose-50 p-3 rounded-lg border border-rose-200">
+              <strong>Warning:</strong> This will permanently delete their staff record and revoke their Supabase login account. This action cannot be undone.
+            </div>
+            <div className="pt-4 flex items-center justify-end space-x-3 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDeleteConfirmStaff(null)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="bg-rose-600 hover:bg-rose-700 text-white font-semibold"
+                onClick={() => handleDeleteStaff(deleteConfirmStaff)}
+                loading={actionLoading}
+              >
+                Delete Staff Member
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Temporary Password Display Modal */}
       {tempPasswordModal && (

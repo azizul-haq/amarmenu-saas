@@ -7,11 +7,12 @@ const corsHeaders = {
 };
 
 interface InviteStaffPayload {
-  action?: "invite" | "update" | "toggle_active" | "reset_password";
+  action?: "invite" | "create" | "update" | "toggle_active" | "reset_password" | "delete";
   staff_id?: string;
   full_name?: string;
   phone?: string;
   email?: string;
+  password?: string;
   role?: string;
   is_active?: boolean;
 }
@@ -321,6 +322,101 @@ serve(async (req: Request) => {
     }
 
     // =========================================================================
+    // ACTION: Delete Staff (Permanent Removal from Staff & Auth)
+    // =========================================================================
+    if (action === "delete") {
+      if (!body.staff_id) {
+        return new Response(
+          JSON.stringify({ error: "Missing required parameter: staff_id" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const { data: targetStaff, error: targetError } = await supabaseAdmin
+        .from("restaurant_staff")
+        .select("id, restaurant_id, auth_user_id, role, full_name, is_active")
+        .eq("id", body.staff_id)
+        .eq("restaurant_id", targetRestaurantId)
+        .maybeSingle();
+
+      if (targetError || !targetStaff) {
+        return new Response(
+          JSON.stringify({ error: "Staff member not found in your restaurant" }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Safety: Cannot delete own account
+      if (targetStaff.auth_user_id === callerUser.id) {
+        return new Response(
+          JSON.stringify({ error: "Safety rule: You cannot delete your own account" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Safety: Cannot delete the last remaining owner
+      if (targetStaff.role === "owner") {
+        const { count: ownerCount } = await supabaseAdmin
+          .from("restaurant_staff")
+          .select("id", { count: "exact", head: true })
+          .eq("restaurant_id", targetRestaurantId)
+          .eq("role", "owner");
+
+        if ((ownerCount || 0) <= 1) {
+          return new Response(
+            JSON.stringify({ error: "Safety rule: A restaurant must always keep at least one owner" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // 1. Delete from restaurant_staff
+      const { error: delStaffErr } = await supabaseAdmin
+        .from("restaurant_staff")
+        .delete()
+        .eq("id", targetStaff.id);
+
+      if (delStaffErr) {
+        return new Response(
+          JSON.stringify({ error: `Failed to remove staff record: ${delStaffErr.message}` }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // 2. Permanently delete auth user so they can NEVER log in again
+      if (targetStaff.auth_user_id) {
+        const { error: authDelErr } = await supabaseAdmin.auth.admin.deleteUser(targetStaff.auth_user_id);
+        if (authDelErr) {
+          console.warn("Auth user deletion warning:", authDelErr.message);
+        }
+      }
+
+      // 3. Audit log
+      await supabaseAdmin.from("audit_logs").insert({
+        restaurant_id: targetRestaurantId,
+        actor_id: callerUser.id,
+        actor_role: callerStaff.role,
+        actor_name: callerStaff.full_name,
+        action: "staff_deleted",
+        entity_type: "restaurant_staff",
+        entity_id: targetStaff.id,
+        new_values: {
+          staff_id: targetStaff.id,
+          full_name: targetStaff.full_name,
+          role: targetStaff.role,
+        },
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: `${targetStaff.full_name} was permanently removed.`,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // =========================================================================
     // ACTION: Update Staff
     // =========================================================================
     if (action === "update") {
@@ -464,29 +560,13 @@ serve(async (req: Request) => {
     }
 
     // =========================================================================
-    // ACTION: Invite Staff (Default)
+    // ACTION: Create / Invite Staff
     // =========================================================================
-    const { full_name, phone, role, email } = body;
+    const { full_name, phone, role, email, password } = body;
 
     if (!full_name || !full_name.trim()) {
       return new Response(
         JSON.stringify({ error: "Missing required parameter: full_name" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (!phone || !phone.trim()) {
-      return new Response(
-        JSON.stringify({ error: "Missing required parameter: phone" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Normalize phone to +8801XXXXXXXXX before synthetic email and duplicate check
-    const cleanPhone = normalizeBDPhone(phone.trim());
-    if (!isValidBDPhone(cleanPhone)) {
-      return new Response(
-        JSON.stringify({ error: "Invalid Bangladeshi phone number (must be 11 digits starting with 01)" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -500,21 +580,61 @@ serve(async (req: Request) => {
       );
     }
 
-    // Rule: One phone = one restaurant across all active staff
-    const { data: existingStaff } = await supabaseAdmin
-      .from("restaurant_staff")
-      .select("id, restaurant_id")
-      .eq("phone", cleanPhone)
-      .eq("is_active", true)
-      .maybeSingle();
+    const staffEmail = email && email.trim() ? email.trim().toLowerCase() : null;
+    let cleanPhone: string | null = null;
+    if (phone && phone.trim()) {
+      cleanPhone = normalizeBDPhone(phone.trim());
+      if (!isValidBDPhone(cleanPhone)) {
+        return new Response(
+          JSON.stringify({ error: "Invalid Bangladeshi phone number (must be 11 digits starting with 01)" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
 
-    if (existingStaff) {
+    if (!staffEmail && !cleanPhone) {
       return new Response(
-        JSON.stringify({
-          error: "This phone number is already registered to an active staff member.",
-        }),
-        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: "Either Email or Phone number is required for staff account" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // Check duplicate phone across active staff
+    if (cleanPhone) {
+      const { data: existingStaffPhone } = await supabaseAdmin
+        .from("restaurant_staff")
+        .select("id")
+        .eq("phone", cleanPhone)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (existingStaffPhone) {
+        return new Response(
+          JSON.stringify({
+            error: "This phone number is already registered to an active staff member.",
+          }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // Check duplicate email across active staff
+    if (staffEmail) {
+      const { data: existingStaffEmail } = await supabaseAdmin
+        .from("restaurant_staff")
+        .select("id")
+        .eq("email", staffEmail)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (existingStaffEmail) {
+        return new Response(
+          JSON.stringify({
+            error: "This email address is already registered to an active staff member.",
+          }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
     // Plan Staff Limit Check
@@ -548,21 +668,20 @@ serve(async (req: Request) => {
       );
     }
 
-    // Generate 8-10 character temporary password
-    const tempPassword = generateSecureTempPassword();
-    const syntheticEmail = email && email.trim()
-      ? email.trim().toLowerCase()
-      : `${cleanPhone.replace(/\D/g, "")}@staff.amarmenu.internal`;
+    // Determine password: owner-assigned password or generated temp password
+    const hasCustomPassword = !!(password && password.trim().length >= 6);
+    const userPassword = hasCustomPassword ? password!.trim() : generateSecureTempPassword();
+    const finalEmail = staffEmail || `${cleanPhone!.replace(/\D/g, "")}@staff.amarmenu.internal`;
 
-    // Create auth user with must_change_password stored in app_metadata
+    // Create auth user via admin API (so owner session in browser is untouched!)
     const { data: authCreated, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
-      email: syntheticEmail,
-      phone: cleanPhone,
-      password: tempPassword,
+      email: finalEmail,
+      phone: cleanPhone || undefined,
+      password: userPassword,
       email_confirm: true,
-      phone_confirm: true,
+      phone_confirm: !!cleanPhone,
       app_metadata: {
-        must_change_password: true,
+        must_change_password: !hasCustomPassword,
         restaurant_id: targetRestaurantId,
       },
     });
@@ -584,7 +703,7 @@ serve(async (req: Request) => {
         auth_user_id: newAuthUserId,
         full_name: full_name.trim(),
         phone: cleanPhone,
-        email: email ? email.trim() : null,
+        email: staffEmail,
         role,
         is_active: true,
       })
@@ -600,18 +719,19 @@ serve(async (req: Request) => {
       );
     }
 
-    // Write audit log (NEVER logs or writes tempPassword)
+    // Write audit log (NEVER logs or writes password)
     await supabaseAdmin.from("audit_logs").insert({
       restaurant_id: targetRestaurantId,
       actor_id: callerUser.id,
       actor_role: callerStaff.role,
       actor_name: callerStaff.full_name,
-      action: "staff_invited",
+      action: hasCustomPassword ? "staff_created" : "staff_invited",
       entity_type: "restaurant_staff",
       entity_id: newStaff.id,
       new_values: {
         staff_id: newStaff.id,
         full_name: newStaff.full_name,
+        email: staffEmail,
         phone: cleanPhone,
         role,
       },
@@ -620,9 +740,11 @@ serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         success: true,
-        message: "Staff member created successfully. Provide the temporary password to the employee.",
+        message: hasCustomPassword
+          ? `Staff member ${newStaff.full_name} created successfully.`
+          : "Staff member created successfully. Provide the temporary password to the employee.",
         staff: newStaff,
-        tempPassword,
+        tempPassword: hasCustomPassword ? undefined : userPassword,
       }),
       { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

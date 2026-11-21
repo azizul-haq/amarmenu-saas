@@ -455,3 +455,56 @@ export const adminTogglePlanStatus = async (
   return { success: true };
 };
 
+/**
+ * Online Instant Subscription Renewal & Upgrade (Owner)
+ * Uses renew_subscription_online RPC to create a paid invoice and extend subscription period
+ */
+export const renewSubscriptionOnline = async (params: {
+  restaurantId: string;
+  planCode: string;
+  billingCycle: string;
+  paymentMethod: string;
+  gatewayTrxId: string;
+  amount: number;
+}): Promise<{
+  success: boolean;
+  data?: {
+    invoice_id: string;
+    invoice_number: string;
+    amount: number;
+    plan_code: string;
+    status: string;
+    message: string;
+  };
+  error?: string;
+}> => {
+  const { data, error } = await supabase.rpc("renew_subscription_online", {
+    p_restaurant_id: params.restaurantId,
+    p_plan_code: params.planCode,
+    p_billing_cycle: params.billingCycle,
+    p_payment_method: params.paymentMethod,
+    p_gateway_trx_id: params.gatewayTrxId,
+    p_amount: params.amount,
+  });
+
+  if (error || !data) {
+    return {
+      success: false,
+      error: error?.message || "Failed to process online subscription renewal",
+    };
+  }
+
+  return {
+    success: true,
+    data: data as {
+      invoice_id: string;
+      invoice_number: string;
+      amount: number;
+      plan_code: string;
+      status: string;
+      message: string;
+    },
+  };
+};
+
+

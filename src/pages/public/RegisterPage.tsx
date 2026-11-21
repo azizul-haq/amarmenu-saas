@@ -264,7 +264,7 @@ const RegisterPage: React.FC = () => {
                     value={formData.city}
                     onChange={handleChange}
                     error={errors.city}
-                    placeholder="e.g., Mumbai"
+                    placeholder="e.g., Dhaka"
                     required
                   />
 
@@ -273,7 +273,7 @@ const RegisterPage: React.FC = () => {
                     name="address"
                     value={formData.address}
                     onChange={handleChange}
-                    placeholder="Street address"
+                    placeholder="e.g., House 12, Road 5, Dhanmondi"
                   />
                 </div>
               </div>

@@ -4,9 +4,6 @@ import {
   CheckCircle,
   XCircle,
   Package,
-  Phone,
-  User,
-  MessageSquare,
   UtensilsCrossed,
   Bell,
   Check,
@@ -20,6 +17,8 @@ import {
   ChefHat,
   Search,
   X,
+  Plus,
+  FileText,
 } from "lucide-react";
 import {
   Card,
@@ -40,6 +39,7 @@ import { KOTReceipt } from "../../components/restaurant/KOTReceipt";
 import { BillReceiptModal } from "../../components/restaurant/BillReceiptModal";
 import { SettleBillModal } from "../../components/restaurant/SettleBillModal";
 import { VoidOrderModal } from "../../components/restaurant/VoidOrderModal";
+import { CreateOrderModal } from "../../components/restaurant/CreateOrderModal";
 import type { VoidOrderResult } from "../../services/auditService";
 import type { Order, OrderItem, Restaurant } from "../../config/supabase";
 import { supabase } from "../../config/supabase";
@@ -60,6 +60,7 @@ const Orders: React.FC = () => {
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const [voidOrder, setVoidOrder] = useState<Order | null>(null);
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [restaurantName, setRestaurantName] = useState("Restaurant");
   const [restaurantData, setRestaurantData] = useState<Restaurant | null>(null);
   const {
@@ -71,7 +72,7 @@ const Orders: React.FC = () => {
   } = usePermissions();
   const previousOrdersRef = useRef<Order[]>([]);
 
-  const { restaurant: authRestaurant, restaurantId: authRestaurantId } = useAuth();
+  const { restaurant: authRestaurant, restaurantId: authRestaurantId, profile, user } = useAuth();
 
   useEffect(() => {
     let targetRestaurantId = authRestaurantId || authRestaurant?.id || "";
@@ -137,6 +138,7 @@ const Orders: React.FC = () => {
     const custName = (order.customer_name || "").toLowerCase();
     const custPhone = (order.customer_phone || "").toLowerCase();
     const tableNum = (order.table_number || "").toLowerCase();
+    const waiterName = (order.waiter_name || order.accepted_by_name || "").toLowerCase();
     const matchesDish =
       Array.isArray(order.items) &&
       order.items.some(
@@ -150,6 +152,7 @@ const Orders: React.FC = () => {
       custName.includes(term) ||
       custPhone.includes(term) ||
       tableNum.includes(term) ||
+      waiterName.includes(term) ||
       matchesDish
     );
   };
@@ -159,6 +162,10 @@ const Orders: React.FC = () => {
     .filter((order) => {
       if (!matchesSearch(order, searchQuery)) return false;
       if (statusFilter === "all") return true;
+      if (statusFilter === "pending") return order.status === "pending";
+      if (statusFilter === "confirmed") return order.status === "accepted";
+      if (statusFilter === "in_process") return order.status === "preparing" || order.status === "ready";
+      if (statusFilter === "completed") return order.status === "completed";
       if (statusFilter === "cancelled") {
         return order.status === "cancelled" || order.status === "rejected";
       }
@@ -181,6 +188,23 @@ const Orders: React.FC = () => {
     const res = await updateOrderStatus(orderId, newStatus, notes);
     if (!res.success) {
       alert(res.error || "Failed to update order status");
+    } else if (newStatus === "accepted") {
+      const waiterStaffName =
+        profile?.full_name ||
+        user?.user_metadata?.full_name ||
+        user?.email?.split("@")[0] ||
+        "Staff Waiter";
+      try {
+        await supabase
+          .from("orders")
+          .update({
+            waiter_name: waiterStaffName,
+            accepted_by_name: waiterStaffName,
+          })
+          .eq("id", orderId);
+      } catch (err) {
+        console.warn("Could not set waiter name directly:", err);
+      }
     }
   };
 
@@ -194,45 +218,75 @@ const Orders: React.FC = () => {
     await recordKOTPrint(order.id);
   };
 
-  const getStatusBadge = (status: string) => {
-    const variants: Record<
-      string,
-      "warning" | "accent-secondary" | "success" | "neutral" | "error"
-    > = {
-      pending: "warning",
-      accepted: "accent-secondary",
-      preparing: "accent-secondary",
-      ready: "warning",
-      completed: "success",
-      cancelled: "neutral",
-      rejected: "error",
-    };
-    return (
-      <Badge variant={variants[status] || "neutral"}>
-        {status === "ready" ? "ready to serve" : status}
-      </Badge>
-    );
+
+  const formatOrderDate = (isoStr: string) => {
+    if (!isoStr) return "-";
+    const d = new Date(isoStr);
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const mins = String(d.getMinutes()).padStart(2, "0");
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12 || 12;
+    const hoursStr = String(hours).padStart(2, "0");
+    return `${day}/${month}/${year} ${hoursStr}:${mins} ${ampm}`;
   };
 
-  const getStatusIcon = (status: string) => {
+  const getOrderStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
-        return <Clock className="w-5 h-5 text-warning" />;
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+            <Clock className="w-3 h-3 mr-1" />
+            Pending
+          </span>
+        );
       case "accepted":
-        return <Check className="w-5 h-5 text-accent-secondary" />;
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+            <Check className="w-3 h-3 mr-1" />
+            Confirmed
+          </span>
+        );
       case "preparing":
-        return <UtensilsCrossed className="w-5 h-5 text-accent" />;
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-orange-100 text-orange-800 border border-orange-300">
+            <UtensilsCrossed className="w-3 h-3 mr-1" />
+            In Process
+          </span>
+        );
       case "ready":
-        return <Bell className="w-5 h-5 text-warning" />;
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+            <Bell className="w-3 h-3 mr-1" />
+            Ready to Serve
+          </span>
+        );
       case "completed":
-        return <CheckCircle className="w-5 h-5 text-success" />;
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-800 border border-green-300">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Completed
+          </span>
+        );
       case "cancelled":
       case "rejected":
-        return <XCircle className="w-5 h-5 text-error" />;
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+            <XCircle className="w-3 h-3 mr-1" />
+            Cancelled
+          </span>
+        );
       default:
-        return <Clock className="w-5 h-5 text-text-secondary" />;
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700">
+            {status}
+          </span>
+        );
     }
   };
+
 
   const getElapsedMinutes = (dateStr: string) => {
     const diffMs = Date.now() - new Date(dateStr).getTime();
@@ -306,6 +360,15 @@ const Orders: React.FC = () => {
               ⚡ {pendingCount} Pending
             </Badge>
           )}
+
+          {/* Create New Order Button */}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold shadow-xs transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Create New Order</span>
+          </button>
 
           {/* Dual View Mode Toggle */}
           <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
@@ -550,306 +613,247 @@ const Orders: React.FC = () => {
         /* ================================================================ */
         <div className="space-y-4">
           {/* Status Filter Tabs */}
-      <div className="flex flex-wrap gap-2">
-        {[
-          { id: "all", label: "All" },
-          { id: "pending", label: "Pending", count: pendingCount },
-          { id: "accepted", label: "Accepted" },
-          { id: "preparing", label: "Preparing" },
-          { id: "ready", label: "Ready to Serve", count: readyCount },
-          { id: "completed", label: "Completed" },
-          { id: "cancelled", label: "Cancelled / Rejected" },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setStatusFilter(tab.id)}
-            className={`px-4 py-2 rounded-lg font-medium text-xs transition-colors ${
-              statusFilter === tab.id
-                ? "bg-accent text-white shadow-sm"
-                : "bg-bg-subtle text-text-secondary hover:bg-border"
-            }`}
-          >
-            {tab.label}
-            {tab.count !== undefined && tab.count > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-white/20 text-[10px] font-bold">
-                {tab.count}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: "all", label: "All" },
+              { id: "pending", label: "Pending", count: pendingCount },
+              { id: "confirmed", label: "Confirmed", count: orders.filter((o) => o.status === "accepted").length },
+              { id: "in_process", label: "In Process", count: orders.filter((o) => o.status === "preparing" || o.status === "ready").length },
+              { id: "completed", label: "Completed", count: orders.filter((o) => o.status === "completed").length },
+              { id: "cancelled", label: "Cancelled", count: orders.filter((o) => o.status === "cancelled" || o.status === "rejected").length },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setStatusFilter(tab.id)}
+                className={`px-4 py-2 rounded-xl font-bold text-xs transition-colors ${
+                  statusFilter === tab.id
+                    ? "bg-slate-900 text-white shadow-xs"
+                    : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+                }`}
+              >
+                {tab.label}
+                {tab.count !== undefined && tab.count > 0 && (
+                  <span
+                    className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                      statusFilter === tab.id
+                        ? "bg-white/20 text-white"
+                        : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
 
-      {/* Orders List */}
-      {filteredOrders.length === 0 ? (
-        <Card className="text-center py-12">
-          <Package className="w-16 h-16 text-text-secondary mx-auto mb-4 opacity-50" />
-          <h3 className="text-xl font-semibold text-text mb-2">
-            No Orders Found
-          </h3>
-          <p className="text-text-secondary text-sm">
-            No orders match the selected filter ({statusFilter}).
-          </p>
-        </Card>
-      ) : (
-        <div className="grid gap-4">
-          {filteredOrders.map((order) => (
-            <Card
-              key={order.id}
-              className={`hover:shadow-lg transition-shadow ${
-                order.status === "pending"
-                  ? "border-l-4 border-l-warning"
-                  : order.status === "ready"
-                  ? "border-l-4 border-l-success"
-                  : ""
-              }`}
-            >
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                {/* Order Info */}
-                <div className="flex-1 space-y-3">
-                  {/* Header */}
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-3">
-                      {getStatusIcon(order.status)}
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-lg font-bold text-text">
-                            Order #{order.order_number}
-                          </h3>
-                          {order.invoice_number && (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold border border-emerald-300">
-                              {order.invoice_number}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-text-secondary">
-                          {formatDateTime(order.created_at)}
-                        </p>
-                      </div>
-                    </div>
-                    {getStatusBadge(order.status)}
-                  </div>
-
-                  {/* Details */}
-                  <div className="grid sm:grid-cols-2 gap-2 text-sm">
-                    <div className="flex items-center space-x-2 text-text-secondary">
-                      <Package className="w-4 h-4" />
-                      <span>
-                        {order.order_type === "counter"
-                          ? "Takeaway / Counter"
-                          : `Table: ${order.table_number || "Unassigned"}`}
-                      </span>
-                    </div>
-                    {order.customer_phone && (
-                      <div className="flex items-center space-x-2 text-text-secondary">
-                        <Phone className="w-4 h-4" />
-                        <a
-                          href={`tel:${order.customer_phone}`}
-                          className="text-accent hover:underline font-mono"
-                        >
-                          {order.customer_phone}
-                        </a>
-                      </div>
-                    )}
-                    {order.customer_name && (
-                      <div className="flex items-center space-x-2 text-text-secondary">
-                        <User className="w-4 h-4" />
-                        <span>{order.customer_name}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center space-x-2 text-text-secondary">
-                      <span className="font-semibold text-text">
-                        {order.items?.length || 0} items
-                      </span>
-                      <span>•</span>
-                      <span className="font-bold text-text text-lg">
-                        {formatCurrency(order.total)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Customer Notes */}
-                  {order.customer_notes && (
-                    <div className="flex items-start space-x-2 text-xs bg-bg-subtle rounded-lg p-2.5">
-                      <MessageSquare className="w-4 h-4 text-accent-secondary mt-0.5 shrink-0" />
-                      <div>
-                        <p className="font-semibold text-text">Special Instructions:</p>
-                        <p className="text-text-secondary">
-                          {order.customer_notes}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Rejection / Cancellation Notes */}
-                  {(order.cancellation_reason || order.rejection_reason) && (
-                    <div className="text-xs text-error bg-red-50 p-2 rounded-lg">
-                      <span className="font-bold">Reason: </span>
-                      {order.cancellation_reason || order.rejection_reason}
-                    </div>
-                  )}
-                </div>
-
-                {/* State Machine Action Controls */}
-                <div className="flex lg:flex-col gap-2 lg:min-w-[170px]">
-                  <div className="flex items-center gap-1.5 w-full">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      fullWidth
-                      onClick={() => handleViewDetails(order)}
-                    >
-                      View Details
-                    </Button>
-                    <button
-                      onClick={() => handlePrintKOT(order)}
-                      className="p-2 border border-border hover:border-accent hover:text-accent rounded-lg text-text-secondary transition-colors"
-                      title="Print KOT Ticket"
-                    >
-                      <Printer className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Pending: Waiter Verify & Confirm */}
-                  {order.status === "pending" && canConfirmOrder && (
-                    <>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        fullWidth
-                        className="bg-accent text-white hover:bg-accent-hover font-bold shadow-sm"
-                        onClick={() => handleStatusUpdate(order.id, "accepted")}
-                      >
-                        ✓ Verify & Confirm
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        fullWidth
-                        className="text-error border-error/30 hover:bg-error/10"
-                        onClick={() => {
-                          setSelectedOrder(order);
-                          setShowRejectModal(true);
-                        }}
-                      >
-                        Reject
-                      </Button>
-                    </>
-                  )}
-
-                  {/* Accepted: Kitchen Start Cooking */}
-                  {order.status === "accepted" && canUpdateKitchenStatus && (
-                    <>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        fullWidth
-                        className="font-bold"
-                        onClick={() => handleStatusUpdate(order.id, "preparing")}
-                      >
-                        🍳 Start Cooking
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        fullWidth
-                        onClick={() => {
-                          setSelectedOrder(order);
-                          setShowRejectModal(true);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </>
-                  )}
-
-                  {/* Preparing: Kitchen Mark Ready */}
-                  {order.status === "preparing" && canUpdateKitchenStatus && (
-                    <>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        fullWidth
-                        className="font-bold bg-amber-500 text-white hover:bg-amber-600"
-                        onClick={() => handleStatusUpdate(order.id, "ready")}
-                      >
-                        🔔 Mark Ready
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        fullWidth
-                        onClick={() => {
-                          setSelectedOrder(order);
-                          setShowRejectModal(true);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </>
-                  )}
-
-                  {/* Ready: Settle Bill & Complete */}
-                  {order.status === "ready" && canSettleBill && (
-                    <>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        fullWidth
-                        className="font-bold bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-1.5 shadow-sm"
-                        onClick={() => setSettleOrder(order)}
-                      >
-                        <DollarSign className="w-4 h-4" />
-                        <span>Settle Bill & Complete</span>
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        fullWidth
-                        onClick={() => {
-                          setSelectedOrder(order);
-                          setShowRejectModal(true);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </>
-                  )}
-
-                  {/* Completed: Print Customer Bill Receipt or Void Bill */}
-                  {order.status === "completed" && (
-                    <div className="space-y-1.5 w-full">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        fullWidth
-                        className="font-bold text-emerald-700 border-emerald-300 hover:bg-emerald-50 flex items-center justify-center gap-1.5"
-                        onClick={() => setReceiptOrder(order)}
-                      >
-                        <Receipt className="w-4 h-4" />
-                        <span>Print Bill Receipt</span>
-                      </Button>
-                      {canVoidSettledBill && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          fullWidth
-                          className="text-[11px] text-red-600 hover:bg-red-50 flex items-center justify-center gap-1"
-                          onClick={() => setVoidOrder(order)}
-                        >
-                          <ShieldAlert className="w-3.5 h-3.5" />
-                          <span>Void Bill (Manager PIN)</span>
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
+          {/* Production-grade POS Orders Table */}
+          {filteredOrders.length === 0 ? (
+            <Card className="text-center py-12">
+              <Package className="w-16 h-16 text-slate-300 mx-auto mb-4 opacity-50" />
+              <h3 className="text-lg font-bold text-slate-800 mb-1">
+                No Orders Found
+              </h3>
+              <p className="text-slate-500 text-xs">
+                No orders match the selected filter ({statusFilter}) or search term.
+              </p>
             </Card>
-          ))}
+          ) : (
+            <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      <th className="py-3 px-4">SL.</th>
+                      <th className="py-3 px-4">Order ID</th>
+                      <th className="py-3 px-4">Table No</th>
+                      <th className="py-3 px-4">Waiter</th>
+                      <th className="py-3 px-4">Customer</th>
+                      <th className="py-3 px-4">Order Type</th>
+                      <th className="py-3 px-4">Date</th>
+                      <th className="py-3 px-4">Amount</th>
+                      <th className="py-3 px-4">Order Status</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredOrders.map((order, idx) => {
+                      const sl = String(idx + 1).padStart(5, "0");
+                      const isTakeaway = order.order_type === "takeaway" || order.order_type === "counter";
+                      const waiter = order.waiter_name || order.accepted_by_name || "-";
+                      const customer = order.customer_name?.trim() || "Walking Customer";
+                      const formattedDate = formatOrderDate(order.created_at);
+
+                      return (
+                        <tr
+                          key={order.id}
+                          className="hover:bg-slate-50/70 transition-colors"
+                        >
+                          {/* SL. */}
+                          <td className="py-3.5 px-4 font-mono font-bold text-slate-400">
+                            {sl}
+                          </td>
+
+                          {/* Order ID */}
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-extrabold text-slate-900">
+                                #{order.order_number}
+                              </span>
+                              {order.invoice_number && (
+                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold border border-emerald-300">
+                                  {order.invoice_number}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Table No */}
+                          <td className="py-3.5 px-4">
+                            {isTakeaway ? (
+                              <span className="text-slate-400 font-bold text-sm">-</span>
+                            ) : (
+                              <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                                {order.table_number ? `Table ${order.table_number}` : "-"}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Waiter */}
+                          <td className="py-3.5 px-4">
+                            {waiter === "-" ? (
+                              <span className="text-slate-400 italic text-[11px]">- (Pending)</span>
+                            ) : (
+                              <span className="font-semibold text-orange-700 bg-orange-50 px-2 py-0.5 rounded-md border border-orange-200/80">
+                                {waiter}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Customer */}
+                          <td className="py-3.5 px-4">
+                            <div>
+                              <p className="font-bold text-slate-800 truncate max-w-[140px]">
+                                {customer}
+                              </p>
+                              {order.customer_phone && (
+                                <p className="text-[10px] text-slate-400 font-mono">
+                                  {order.customer_phone}
+                                </p>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Order Type */}
+                          <td className="py-3.5 px-4">
+                            {isTakeaway ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                🛍️ Takeaway
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                🍽️ Dine in
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Date */}
+                          <td className="py-3.5 px-4 text-slate-500 font-medium whitespace-nowrap">
+                            {formattedDate}
+                          </td>
+
+                          {/* Amount */}
+                          <td className="py-3.5 px-4 font-black text-slate-900 whitespace-nowrap">
+                            {formatCurrency(order.total)}
+                          </td>
+
+                          {/* Order Status */}
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            {getOrderStatusBadge(order.status)}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {order.status === "pending" && canConfirmOrder && (
+                                <button
+                                  onClick={() => handleStatusUpdate(order.id, "accepted")}
+                                  className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors"
+                                >
+                                  Confirm
+                                </button>
+                              )}
+                              {order.status === "accepted" && canUpdateKitchenStatus && (
+                                <button
+                                  onClick={() => handleStatusUpdate(order.id, "preparing")}
+                                  className="px-2.5 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors"
+                                >
+                                  Cook
+                                </button>
+                              )}
+                              {order.status === "preparing" && canUpdateKitchenStatus && (
+                                <button
+                                  onClick={() => handleStatusUpdate(order.id, "ready")}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors"
+                                >
+                                  Ready
+                                </button>
+                              )}
+                              {canSettleBill &&
+                                (order.status === "ready" ||
+                                  order.status === "accepted" ||
+                                  order.status === "preparing") && (
+                                  <button
+                                    onClick={() => setSettleOrder(order)}
+                                    className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors"
+                                  >
+                                    Settle
+                                  </button>
+                                )}
+                              <button
+                                onClick={() => handleViewDetails(order)}
+                                className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
+                                title="View Details"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handlePrintKOT(order)}
+                                className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
+                                title="Print KOT"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+                              {order.status === "completed" && (
+                                <button
+                                  onClick={() => setReceiptOrder(order)}
+                                  className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors border border-emerald-200"
+                                  title="Print Receipt"
+                                >
+                                  <Receipt className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {(canVoidOrder || canVoidSettledBill) && order.status !== "cancelled" && (
+                                <button
+                                  onClick={() => setVoidOrder(order)}
+                                  className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-red-200 text-[10px] font-bold"
+                                  title="Void with Manager PIN"
+                                >
+                                  <ShieldAlert className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
-    </div>
-  )}
 
       {/* Order Details Modal */}
       <OrderDetailsModal
@@ -937,6 +941,17 @@ const Orders: React.FC = () => {
             setOrders((prev) =>
               prev.map((o) => (o.id === updated.id ? updated : o))
             );
+          }}
+        />
+      )}
+
+      {/* Staff POS Create Order Modal */}
+      {showCreateModal && (
+        <CreateOrderModal
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onOrderCreated={() => {
+            // Real-time channel will sync orders
           }}
         />
       )}
@@ -1059,16 +1074,26 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
             </div>
             <div>
               <p className="text-text-secondary">Order Type</p>
-              <p className="font-medium text-text capitalize">
-                {order.order_type}
+              <p className="font-bold text-text">
+                {order.order_type === "takeaway" || order.order_type === "counter"
+                  ? "Takeaway / Parcel"
+                  : "Dine-in"}
               </p>
             </div>
-            {order.table_number && (
-              <div>
-                <p className="text-text-secondary">Table Number</p>
-                <p className="font-medium text-text">{order.table_number}</p>
-              </div>
-            )}
+            <div>
+              <p className="text-text-secondary">Table Number</p>
+              <p className="font-bold text-text">
+                {order.order_type === "takeaway" || order.order_type === "counter"
+                  ? "-"
+                  : order.table_number || "-"}
+              </p>
+            </div>
+            <div>
+              <p className="text-text-secondary">Assigned Waiter</p>
+              <p className="font-bold text-orange-600">
+                {order.waiter_name || order.accepted_by_name || "Pending Confirmation"}
+              </p>
+            </div>
           </div>
         </div>
 

@@ -44,6 +44,28 @@ export const initiateOnlinePayment = async (
   }
 };
 
+async function parseEdgeFunctionError(error: unknown): Promise<string> {
+  if (!error) return "An unexpected error occurred";
+  const errObj = error as Record<string, unknown>;
+  if (errObj && typeof errObj === "object" && errObj.context && typeof (errObj.context as Response).json === "function") {
+    try {
+      const body = await (errObj.context as Response).json();
+      if (body?.error) {
+        if (typeof body.error === "string" && body.error.toLowerCase().includes("not found")) {
+          return "Payment session expired or not found. Please refresh and try again.";
+        }
+        return body.error;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (errObj && typeof errObj.message === "string") {
+    return errObj.message;
+  }
+  return "Payment request failed";
+}
+
 /**
  * Completes an online payment via the server-side simulate-payment Edge Function.
  * The client browser NEVER calls raw settlement RPCs directly.
@@ -73,7 +95,8 @@ export const completeOnlinePayment = async (
     });
 
     if (error) {
-      return { success: false, error: error.message };
+      const friendlyError = await parseEdgeFunctionError(error);
+      return { success: false, error: friendlyError };
     }
 
     if (!data?.success) {
@@ -112,7 +135,8 @@ export const failOnlinePayment = async (
     });
 
     if (error) {
-      return { success: false, error: error.message };
+      const friendlyError = await parseEdgeFunctionError(error);
+      return { success: false, error: friendlyError };
     }
 
     if (!data?.success) {

@@ -182,7 +182,9 @@ export interface Order {
   invoice_number?: string | null;
   tendered_amount?: number | null;
   change_amount?: number | null;
-  order_type: "qr" | "counter" | "phone" | "table";
+  order_type: "dine_in" | "takeaway" | "qr" | "counter" | "phone" | "table";
+  waiter_name?: string | null;
+  accepted_by_name?: string | null;
   table_number?: string;
   customer_name?: string;
   customer_phone?: string;

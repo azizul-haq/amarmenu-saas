@@ -893,11 +893,12 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
     }
 
     // Zod validation with customerCheckoutSchema
+    const effectiveOrderType = orderType === "takeaway" ? "takeaway" : detectedTable ? "qr" : "dine_in";
     const validationResult = customerCheckoutSchema.safeParse({
       customer_name: customerName,
       customer_phone: customerPhone,
-      order_type: detectedTable ? "qr" : orderType === "table" ? "table" : "counter",
-      table_number: orderType === "table" ? (detectedTable ? detectedTable.table_number : tableNumber) : undefined,
+      order_type: effectiveOrderType,
+      table_number: orderType === "takeaway" ? undefined : (detectedTable ? detectedTable.table_number : tableNumber),
       customer_notes: notes || undefined,
     });
 
@@ -913,13 +914,10 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
     const orderPayload = {
       restaurant_id: restaurantId,
-      table_id: detectedTable ? detectedTable.id : undefined,
-      order_type: (detectedTable ? "qr" : orderType === "table" ? "table" : "counter") as
-        | "qr"
-        | "counter"
-        | "table",
-      table_number: validData.table_number,
-      qr_token: detectedTable ? qrToken : undefined,
+      table_id: orderType === "takeaway" ? undefined : (detectedTable ? detectedTable.id : undefined),
+      order_type: effectiveOrderType as "dine_in" | "takeaway" | "qr" | "counter" | "table",
+      table_number: orderType === "takeaway" ? undefined : validData.table_number,
+      qr_token: orderType === "takeaway" ? undefined : (detectedTable ? qrToken : undefined),
       idempotency_key: idempotencyKey,
       customer_name: validData.customer_name,
       customer_phone: validData.customer_phone,
@@ -966,8 +964,41 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <Alert type="error" message={error} />}
 
-        {/* Table Badge if QR detected */}
-        {detectedTable ? (
+        {/* Order Type Selector: Dine-in vs Takeaway */}
+        <div>
+          <label className="label mb-1.5 text-xs font-bold text-gray-700">
+            {lang === "bn" ? "অর্ডারের ধরণ" : "Order Type"}
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setOrderType("table")}
+              className={`p-2.5 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                orderType === "table"
+                  ? "border-accent bg-accent/10 text-accent shadow-xs"
+                  : "border-gray-200 text-gray-600 hover:border-gray-300"
+              }`}
+            >
+              <span>🍽️</span>
+              <span>{lang === "bn" ? "ডাইন-ইন" : "Dine-in"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setOrderType("takeaway")}
+              className={`p-2.5 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                orderType === "takeaway"
+                  ? "border-accent bg-accent/10 text-accent shadow-xs"
+                  : "border-gray-200 text-gray-600 hover:border-gray-300"
+              }`}
+            >
+              <span>🛍️</span>
+              <span>{lang === "bn" ? "টেকঅ্যাওয়ে" : "Takeaway"}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Table Badge if Dine-in with QR detected */}
+        {orderType === "table" && detectedTable && (
           <div className="bg-accent/10 border border-accent/20 rounded-xl p-3 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 bg-accent text-white rounded-lg flex items-center justify-center">
@@ -986,40 +1017,10 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
               QR Verified
             </span>
           </div>
-        ) : (
-          <div>
-            <label className="label mb-1.5 text-xs">
-              {lang === "bn" ? "অর্ডারের ধরণ" : "Order Type"}
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setOrderType("table")}
-                className={`p-3 rounded-xl border-2 font-bold text-xs transition-colors ${
-                  orderType === "table"
-                    ? "border-accent bg-accent/5 text-accent"
-                    : "border-gray-200 text-gray-600 hover:border-gray-300"
-                }`}
-              >
-                🍽️ {lang === "bn" ? "ডাইন-ইন (টেবিল)" : "Dine In (Table)"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setOrderType("takeaway")}
-                className={`p-3 rounded-xl border-2 font-bold text-xs transition-colors ${
-                  orderType === "takeaway"
-                    ? "border-accent bg-accent/5 text-accent"
-                    : "border-gray-200 text-gray-600 hover:border-gray-300"
-                }`}
-              >
-                🛍️ {lang === "bn" ? "পার্সেল / টেকঅ্যাওয়ে" : "Takeaway / Parcel"}
-              </button>
-            </div>
-          </div>
         )}
 
         {/* Manual Table Number if Dine-in without QR */}
-        {!detectedTable && orderType === "table" && (
+        {orderType === "table" && !detectedTable && (
           <Input
             label={lang === "bn" ? "টেবিল নম্বর" : "Table Number"}
             value={tableNumber}

@@ -11,6 +11,7 @@ interface SearchResultOrder {
   table_number?: string;
   customer_name?: string;
   customer_phone?: string;
+  waiter_name?: string;
   status: string;
   total: number;
   created_at: string;
@@ -102,7 +103,7 @@ export const RoleBasedSearchBar: React.FC<{ className?: string }> = ({ className
           // Restaurant roles: search within caller's restaurant strictly respecting RLS
           let queryBuilder = supabase
             .from("orders")
-            .select("id, order_number, table_number, customer_name, customer_phone, status, total, created_at, items")
+            .select("id, order_number, table_number, customer_name, customer_phone, waiter_name, accepted_by_name, status, total, created_at, items")
             .eq("restaurant_id", restaurantId);
 
           if (role === "kitchen" || role === "waiter") {
@@ -111,7 +112,7 @@ export const RoleBasedSearchBar: React.FC<{ className?: string }> = ({ className
           }
 
           const { data: ords } = await queryBuilder
-            .or(`order_number.ilike.%${trimmed}%,customer_name.ilike.%${trimmed}%,customer_phone.ilike.%${trimmed}%,table_number.ilike.%${trimmed}%`)
+            .or(`order_number.ilike.%${trimmed}%,customer_name.ilike.%${trimmed}%,customer_phone.ilike.%${trimmed}%,table_number.ilike.%${trimmed}%,waiter_name.ilike.%${trimmed}%`)
             .order("created_at", { ascending: false })
             .limit(8);
 
@@ -279,6 +280,7 @@ export const RoleBasedSearchBar: React.FC<{ className?: string }> = ({ className
                         <p className="text-[11px] text-slate-500 truncate">
                           {o.customer_name ? `${o.customer_name} ` : ""}
                           {o.customer_phone ? `(${o.customer_phone})` : ""}
+                          {o.waiter_name ? ` • Waiter: ${o.waiter_name}` : ""}
                           {o.items && o.items.length > 0 && (
                             <span className="text-slate-400">
                               {" • "}

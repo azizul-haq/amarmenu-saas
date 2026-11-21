@@ -385,7 +385,7 @@ export interface PlaceOrderItemDTO {
 
 export interface PlaceOrderDTO {
   restaurant_id: string;
-  order_type: "qr" | "counter" | "table" | "phone";
+  order_type: "dine_in" | "takeaway" | "qr" | "counter" | "table" | "phone";
   customer_name: string;
   customer_phone: string;
   items: PlaceOrderItemDTO[];

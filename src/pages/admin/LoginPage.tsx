@@ -7,13 +7,20 @@ import { isValidEmail } from "../../utils/helpers";
 
 const AdminLogin: React.FC = () => {
   const navigate = useNavigate();
-  const { signIn, signOut } = useAuth();
+  const { signIn, signOut, user, role, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
+
+  // Automatically forward if already authenticated as super_admin
+  React.useEffect(() => {
+    if (!authLoading && user && role === "super_admin") {
+      navigate("/admin", { replace: true });
+    }
+  }, [user, role, authLoading, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

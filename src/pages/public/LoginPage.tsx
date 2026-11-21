@@ -9,13 +9,24 @@ import { isValidEmail, isValidPhone } from "../../utils/helpers";
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const { signIn, signOut } = useAuth();
+  const { signIn, signOut, user, role, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
+
+  // Automatically forward if already authenticated
+  React.useEffect(() => {
+    if (!authLoading && user && role) {
+      if (role === "super_admin") {
+        navigate("/admin", { replace: true });
+      } else if (["owner", "manager", "cashier", "kitchen", "waiter"].includes(role)) {
+        navigate("/restaurant", { replace: true });
+      }
+    }
+  }, [user, role, authLoading, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

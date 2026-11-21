@@ -24,33 +24,59 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Safely parse JSON from storage; purges corrupted items on error
+function safeStorageGet<T>(key: string): T | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(key) || localStorage.getItem(key);
+    if (!raw || raw === "undefined" || raw === "null") return null;
+    return JSON.parse(raw) as T;
+  } catch (err) {
+    console.warn(`Purging corrupted storage item for "${key}":`, err);
+    try {
+      sessionStorage.removeItem(key);
+      localStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+}
+
+// Safely remove all cached auth state
+function safeClearAuthStorage() {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem("user");
+    sessionStorage.removeItem("admin");
+    sessionStorage.removeItem("current_restaurant");
+    sessionStorage.removeItem("role");
+    localStorage.removeItem("user");
+    localStorage.removeItem("admin");
+    localStorage.removeItem("current_restaurant");
+    localStorage.removeItem("role");
+  } catch {
+    // ignore
+  }
+}
+
 // Synchronously read stored session cache on mount so that initial render has profile & role
 const getStoredAuthState = () => {
-  if (typeof window === "undefined") {
-    return { profile: null, admin: null, role: null, restaurant: null, restaurantId: null };
-  }
-  try {
-    const rawUser = sessionStorage.getItem("user");
-    const rawAdmin = sessionStorage.getItem("admin");
-    const rawRest = sessionStorage.getItem("current_restaurant");
-    const parsedUser = rawUser ? JSON.parse(rawUser) : null;
-    const parsedAdmin = rawAdmin ? JSON.parse(rawAdmin) : null;
-    const parsedRest = rawRest ? JSON.parse(rawRest) : null;
+  const parsedUser = safeStorageGet<RestaurantStaff>("user");
+  const parsedAdmin = safeStorageGet<PlatformAdmin>("admin");
+  const parsedRest = safeStorageGet<Restaurant>("current_restaurant");
 
-    let initialRole: UserRole = null;
-    if (parsedAdmin) initialRole = "super_admin";
-    else if (parsedUser?.role) initialRole = parsedUser.role as UserRole;
+  let initialRole: UserRole = null;
+  if (parsedAdmin) initialRole = "super_admin";
+  else if (parsedUser?.role) initialRole = parsedUser.role as UserRole;
 
-    return {
-      profile: parsedUser as RestaurantStaff | null,
-      admin: parsedAdmin as PlatformAdmin | null,
-      role: initialRole,
-      restaurant: parsedRest as Restaurant | null,
-      restaurantId: (parsedRest?.id || parsedUser?.restaurant_id || null) as string | null,
-    };
-  } catch {
-    return { profile: null, admin: null, role: null, restaurant: null, restaurantId: null };
-  }
+  return {
+    profile: parsedUser,
+    admin: parsedAdmin,
+    role: initialRole,
+    restaurant: parsedRest,
+    restaurantId: (parsedRest?.id || parsedUser?.restaurant_id || null) as string | null,
+  };
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -77,19 +103,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 1. Check if user is a platform admin (Super Admin)
       let adminData: PlatformAdmin | null = null;
       try {
-        const filterStr = currentUser.email
-          ? `auth_user_id.eq.${currentUser.id},email.eq.${currentUser.email}`
-          : `auth_user_id.eq.${currentUser.id}`;
-
-        const { data: adm } = await supabase
+        const { data: admAuth } = await supabase
           .from("platform_admins")
           .select("*")
-          .or(filterStr)
+          .eq("auth_user_id", currentUser.id)
           .eq("is_active", true)
           .limit(1)
           .maybeSingle();
 
-        adminData = adm as PlatformAdmin | null;
+        if (admAuth) {
+          adminData = admAuth as PlatformAdmin;
+        } else if (currentUser.email) {
+          const { data: admEmail } = await supabase
+            .from("platform_admins")
+            .select("*")
+            .ilike("email", currentUser.email.trim())
+            .eq("is_active", true)
+            .limit(1)
+            .maybeSingle();
+
+          if (admEmail) adminData = admEmail as PlatformAdmin;
+        }
       } catch (adminErr) {
         console.warn("Failed checking platform_admins:", adminErr);
       }
@@ -101,8 +135,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRestaurantId(null);
         setRestaurant(null);
 
-        sessionStorage.setItem("admin", JSON.stringify(adminData));
-        sessionStorage.setItem("role", "super_admin");
+        try {
+          sessionStorage.setItem("admin", JSON.stringify(adminData));
+          sessionStorage.setItem("role", "super_admin");
+        } catch {
+          // ignore
+        }
 
         // Super Admin gets all permissions dynamically from role_permissions
         try {
@@ -196,8 +234,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRestaurantId(effectiveRestaurantId);
         setPlatformAdmin(null);
 
-        sessionStorage.setItem("user", JSON.stringify({ ...staffObj, restaurant_id: effectiveRestaurantId }));
-        sessionStorage.setItem("role", effectiveRole || "");
+        try {
+          sessionStorage.setItem("user", JSON.stringify({ ...staffObj, restaurant_id: effectiveRestaurantId }));
+          sessionStorage.setItem("role", effectiveRole || "");
+        } catch {
+          // ignore
+        }
 
         // Fetch dynamic permissions for this role from the database
         if (effectiveRole) {
@@ -243,19 +285,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           if (!loadedRestaurant) {
             // Restore from cache if available
-            const cachedRest = sessionStorage.getItem("current_restaurant");
-            if (cachedRest) {
-              try {
-                loadedRestaurant = JSON.parse(cachedRest);
-              } catch {
-                // ignore
-              }
-            }
+            const cachedRest = safeStorageGet<Restaurant>("current_restaurant");
+            if (cachedRest) loadedRestaurant = cachedRest;
           }
 
           if (loadedRestaurant) {
             setRestaurant(loadedRestaurant);
-            sessionStorage.setItem("current_restaurant", JSON.stringify(loadedRestaurant));
+            try {
+              sessionStorage.setItem("current_restaurant", JSON.stringify(loadedRestaurant));
+            } catch {
+              // ignore
+            }
           }
         }
 
@@ -282,8 +322,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setRestaurant(rest);
             setRestaurantId(rest.id);
             setRole("owner");
-            sessionStorage.setItem("current_restaurant", JSON.stringify(rest));
-            sessionStorage.setItem("role", "owner");
+            try {
+              sessionStorage.setItem("current_restaurant", JSON.stringify(rest));
+              sessionStorage.setItem("role", "owner");
+            } catch {
+              // ignore
+            }
             return { role: "owner", restaurant: rest, restaurantId: rest.id };
           }
         } catch (oErr) {
@@ -292,10 +336,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // No role found
-      sessionStorage.removeItem("user");
-      sessionStorage.removeItem("admin");
-      sessionStorage.removeItem("current_restaurant");
-      sessionStorage.removeItem("role");
+      safeClearAuthStorage();
       setRole(null);
       setProfile(null);
       setPlatformAdmin(null);
@@ -327,25 +368,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
-    // Safety timeout: Guaranteed to clear the "Authenticating..." spinner after 8 seconds
+    // Hard 3-second safety timeout: GUARANTEED to stop loading spinner and unblock UI
     const safetyTimer = setTimeout(() => {
       if (mounted) {
-        console.warn("Auth initialization safety timeout reached (8s) - unblocking UI");
         isBootDoneRef.current = true;
         setLoading(false);
       }
-    }, 8000);
+    }, 3000);
 
-    const initAuth = async () => {
-      try {
-        const { data, error } = await supabase.auth.getSession();
+    // Initial session probe
+    supabase.auth
+      .getSession()
+      .then(async ({ data, error }) => {
+        if (!mounted) return;
         if (error) {
           console.warn("Error getting initial session:", error);
         }
 
         const bootSession = data?.session;
-        if (!mounted) return;
-
         if (bootSession?.user) {
           setSession(bootSession);
           setUser(bootSession.user);
@@ -356,7 +396,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.error("Failed to load user profile on boot:", profileErr);
           }
         } else {
-          // No active session found
+          // No active session found - immediately clear loading so login/landing load instantly
           setSession(null);
           setUser(null);
           setProfile(null);
@@ -366,18 +406,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setRestaurant(null);
           setPermissions([]);
         }
-      } catch (err) {
-        console.error("Unexpected error in initAuth:", err);
-      } finally {
+      })
+      .catch((err) => {
+        console.warn("Unexpected error in getSession:", err);
+      })
+      .finally(() => {
         isBootDoneRef.current = true;
         if (mounted) {
           setLoading(false);
           clearTimeout(safetyTimer);
         }
-      }
-    };
-
-    initAuth();
+      });
 
     // Subscribe to auth state changes (SIGN_IN, SIGN_OUT, TOKEN_REFRESHED)
     const {
@@ -394,15 +433,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRestaurantId(null);
         setRestaurant(null);
         setPermissions([]);
-        sessionStorage.removeItem("user");
-        sessionStorage.removeItem("admin");
-        sessionStorage.removeItem("current_restaurant");
-        sessionStorage.removeItem("role");
+        safeClearAuthStorage();
         isBootDoneRef.current = true;
         setLoading(false);
       } else if (event === "SIGNED_IN" || event === "USER_UPDATED") {
         setSession(newSession);
         setUser(newSession.user);
+
+        // Avoid re-running profile lookup if already resolving on boot
         try {
           await loadUserProfile(newSession.user);
         } finally {
@@ -422,20 +460,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [loadUserProfile]);
 
-  // Sign In with automatic cleanup of previous session and phone/email resolution
+  // Sign In with automatic phone/email resolution (no lock contention)
   const signIn = async (identifier: string, password: string) => {
     setLoading(true);
     try {
-      // If an existing session is lingering, cleanly sign it out first
-      const { data: existingSession } = await supabase.auth.getSession();
-      if (existingSession?.session) {
-        try {
-          await supabase.auth.signOut();
-        } catch {
-          // Ignore background signout errors
-        }
-      }
-
       let loginEmail = identifier.trim().toLowerCase();
 
       // Handle phone login: if identifier does NOT contain '@', resolve phone to staff email
@@ -471,6 +499,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
+      // Authenticate directly with Supabase - no preceding signOut() to avoid web-lock deadlock
       const { data, error } = await supabase.auth.signInWithPassword({
         email: loginEmail,
         password,
@@ -480,15 +509,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: error.message };
       }
 
-      let resolvedRole: UserRole = null;
-      if (data.user) {
-        setUser(data.user);
-        setSession(data.session);
-        const res = await loadUserProfile(data.user);
-        resolvedRole = res.role;
+      if (!data.user) {
+        return { success: false, error: "Failed to authenticate user." };
       }
 
-      return { success: true, role: resolvedRole };
+      setUser(data.user);
+      setSession(data.session);
+
+      const profileRes = await loadUserProfile(data.user);
+      return { success: true, role: profileRes.role };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to sign in";
       return { success: false, error: message };
@@ -501,15 +530,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     setLoading(true);
     try {
-      // 1. Immediately wipe session and local storage and memory state
-      sessionStorage.removeItem("user");
-      sessionStorage.removeItem("admin");
-      sessionStorage.removeItem("current_restaurant");
-      sessionStorage.removeItem("role");
-      localStorage.removeItem("user");
-      localStorage.removeItem("admin");
-      localStorage.removeItem("current_restaurant");
-      localStorage.removeItem("role");
+      safeClearAuthStorage();
       setUser(null);
       setSession(null);
       setProfile(null);
@@ -519,7 +540,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setRestaurant(null);
       setPermissions([]);
 
-      // 2. Call Supabase signOut with a 2-second timeout race to prevent network freeze
+      // Call Supabase signOut with a 2-second timeout race to prevent network freeze
       await Promise.race([
         supabase.auth.signOut(),
         new Promise((resolve) => setTimeout(resolve, 2000)),

@@ -27,30 +27,33 @@ export const SettleBillModal: React.FC<SettleBillModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Calculate net payable
-  const netPayable = Math.max(0, order.total - (Number(discount) || 0));
-  const changeAmount = Math.max(0, (Number(tenderedAmount) || 0) - netPayable);
+  // Calculate net payable (rounded to 2 decimal places)
+  const netPayable = Math.round(Math.max(0, order.total - (Number(discount) || 0)) * 100) / 100;
+  const changeAmount = Math.round(Math.max(0, (Number(tenderedAmount) || 0) - netPayable) * 100) / 100;
   const isCashInsufficient =
-    paymentMethod === "cash" && (Number(tenderedAmount) || 0) < netPayable;
+    paymentMethod === "cash" && (Number(tenderedAmount) || 0) < netPayable - 0.005;
 
   // Preset quick cash buttons
   const handleQuickCash = (amount: number) => {
-    setTenderedAmount(amount);
+    setTenderedAmount(Math.round(amount * 100) / 100);
   };
 
   const handleAddCash = (increment: number) => {
-    setTenderedAmount((prev) => (Number(prev) || 0) + increment);
+    setTenderedAmount((prev) => Math.round(((Number(prev) || 0) + increment) * 100) / 100);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
+    const parsedTendered = Math.round((parseFloat(String(tenderedAmount)) || 0) * 100) / 100;
+    const parsedDiscount = Math.round((parseFloat(String(discount)) || 0) * 100) / 100;
+
     // Validate using Zod schema
     const validation = cashSettlementSchema.safeParse({
       payment_method: paymentMethod,
-      tendered_amount: Number(tenderedAmount) || 0,
-      discount: Number(discount) || 0,
+      tendered_amount: parsedTendered,
+      discount: parsedDiscount,
       notes: notes || undefined,
       payable_total: order.total,
     });
@@ -65,8 +68,8 @@ export const SettleBillModal: React.FC<SettleBillModalProps> = ({
       const res = await settleOrderBill(
         order.id,
         paymentMethod,
-        Number(tenderedAmount) || 0,
-        Number(discount) || 0,
+        parsedTendered,
+        parsedDiscount,
         notes
       );
 
@@ -190,14 +193,14 @@ export const SettleBillModal: React.FC<SettleBillModalProps> = ({
               type="number"
               min="0"
               max={order.total}
-              step="1"
+              step="0.01"
               disabled={!canApplyDiscount}
-              value={discount || ""}
+              value={discount === 0 ? "" : discount}
               onChange={(e) => {
-                const val = Math.max(0, Number(e.target.value) || 0);
+                const val = e.target.value === "" ? 0 : parseFloat(e.target.value) || 0;
                 setDiscount(val);
                 if (paymentMethod !== "cash" || tenderedAmount === netPayable) {
-                  setTenderedAmount(Math.max(0, order.total - val));
+                  setTenderedAmount(Math.round(Math.max(0, order.total - val) * 100) / 100);
                 }
               }}
               placeholder={canApplyDiscount ? "0.00" : "Discount requires manager/owner role"}
@@ -220,15 +223,18 @@ export const SettleBillModal: React.FC<SettleBillModalProps> = ({
                 onClick={() => handleQuickCash(netPayable)}
                 className="text-xs text-emerald-600 hover:underline font-bold"
               >
-                Exact (৳{netPayable})
+                Exact ({formatCurrency(netPayable)})
               </button>
             </div>
             <input
               type="number"
               min="0"
-              step="1"
-              value={tenderedAmount || ""}
-              onChange={(e) => setTenderedAmount(Number(e.target.value) || 0)}
+              step="0.01"
+              value={tenderedAmount === 0 ? "" : tenderedAmount}
+              onChange={(e) => {
+                const val = e.target.value === "" ? 0 : parseFloat(e.target.value) || 0;
+                setTenderedAmount(val);
+              }}
               required
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-lg font-bold text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
             />

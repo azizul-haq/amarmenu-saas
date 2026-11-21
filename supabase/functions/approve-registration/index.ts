@@ -14,6 +14,106 @@ interface RequestPayload {
   internalNotes?: string;
 }
 
+interface SendEmailParams {
+  to: string;
+  ownerName?: string;
+  restaurantName?: string;
+  actionLink: string;
+  linkType: "invite" | "recovery";
+}
+
+async function sendOnboardingEmail({
+  to,
+  ownerName,
+  restaurantName,
+  actionLink,
+  linkType,
+}: SendEmailParams): Promise<{ sent: boolean; messageId?: string; error?: string }> {
+  const resendApiKey = Deno.env.get("RESEND_API_KEY");
+  if (!resendApiKey) {
+    console.log(
+      `[Email Dispatch] RESEND_API_KEY secret not found in environment. Email not dispatched via Resend. Generated Link: ${actionLink}`
+    );
+    return { sent: false, error: "RESEND_API_KEY not configured" };
+  }
+
+  const senderEmail = Deno.env.get("RESEND_FROM_EMAIL") || "AmarMenu <onboarding@resend.dev>";
+  const isInvite = linkType === "invite";
+  const subject = isInvite
+    ? `Welcome to AmarMenu! Set up your restaurant: ${restaurantName || ""}`
+    : `Set your password for AmarMenu: ${restaurantName || ""}`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${subject}</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+        .container { max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+        .header { background: linear-gradient(135deg, #ea580c 0%, #f97316 100%); padding: 32px 24px; text-align: center; color: #ffffff; }
+        .content { padding: 32px 24px; line-height: 1.6; }
+        .button { display: inline-block; background-color: #ea580c; color: #ffffff !important; font-weight: 700; font-size: 14px; text-decoration: none; padding: 14px 28px; border-radius: 10px; margin: 24px 0; text-align: center; }
+        .footer { background: #f1f5f9; padding: 16px 24px; text-align: center; font-size: 12px; color: #64748b; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1 style="margin:0; font-size: 24px; font-weight: 800;">AmarMenu</h1>
+          <p style="margin: 4px 0 0 0; font-size: 14px; opacity: 0.9;">Smart Restaurant POS & QR Ordering</p>
+        </div>
+        <div class="content">
+          <p>Hello <strong>${ownerName || "Restaurant Partner"}</strong>,</p>
+          <p>Congratulations! Your restaurant <strong>${restaurantName || "Partner Restaurant"}</strong> is ready on the AmarMenu platform.</p>
+          <p>Please click the button below to set your password and access your restaurant management portal:</p>
+          <div style="text-align: center;">
+            <a href="${actionLink}" class="button" target="_blank">Set Your Password & Log In</a>
+          </div>
+          <p style="font-size: 13px; color: #64748b;">If the button above does not work, copy and paste this link into your browser:<br/><a href="${actionLink}" style="color: #ea580c; word-break: break-all;">${actionLink}</a></p>
+          <p style="font-size: 12px; color: #94a3b8; margin-top: 24px;">For your security, this link is valid for 24 hours.</p>
+        </div>
+        <div class="footer">
+          &copy; ${new Date().getFullYear()} AmarMenu Cloud Technologies. All rights reserved.
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${resendApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: senderEmail,
+        to: [to],
+        subject: subject,
+        html: html,
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      console.log(`[Email Dispatch Success] Sent onboarding email to ${to}, ID: ${data?.id}`);
+      return { sent: true, messageId: data?.id };
+    } else {
+      const errorText = await res.text();
+      console.error(`[Email Dispatch Failed] Resend API responded with: ${errorText}`);
+      return { sent: false, error: errorText };
+    }
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[Email Dispatch Exception] ${errorMsg}`);
+    return { sent: false, error: errorMsg };
+  }
+}
+
 serve(async (req: Request) => {
   // 1. Handle CORS Preflight
   if (req.method === "OPTIONS") {
@@ -175,6 +275,26 @@ serve(async (req: Request) => {
 
       const tokenHash = linkData.properties?.hashed_token || "";
       const freshLink = `${targetAppUrl}/set-password?token_hash=${tokenHash}&type=recovery`;
+
+      // Dispatch real email via Resend if configured, otherwise dispatch via Supabase Auth SMTP (e.g. Gmail SMTP)
+      const emailResult = await sendOnboardingEmail({
+        to: ownerStaff.email,
+        ownerName: ownerStaff.full_name,
+        restaurantName: "Your Restaurant",
+        actionLink: freshLink,
+        linkType: "recovery",
+      });
+
+      if (!emailResult.sent) {
+        try {
+          await adminClient.auth.resetPasswordForEmail(ownerStaff.email, {
+            redirectTo: `${targetAppUrl}/set-password`,
+          });
+          console.log(`[SMTP Delivery Success] Dispatched recovery email via Supabase SMTP to ${ownerStaff.email}`);
+        } catch (smtpErr) {
+          console.warn(`[SMTP Delivery Warning] ${smtpErr}`);
+        }
+      }
 
       // Audit log WITHOUT token or URL
       await adminClient.from("platform_audit_logs").insert({
@@ -351,6 +471,27 @@ serve(async (req: Request) => {
       role: "owner",
       is_active: true,
     });
+
+    // Dispatch real onboarding email with set-password link via Resend if configured,
+    // otherwise dispatch via Supabase Auth SMTP (e.g. Gmail SMTP configured in Supabase Dashboard)
+    const emailResult = await sendOnboardingEmail({
+      to: request.email,
+      ownerName: request.owner_name,
+      restaurantName: request.restaurant_name,
+      actionLink: actionLink,
+      linkType: effectiveLinkType,
+    });
+
+    if (!emailResult.sent) {
+      try {
+        await adminClient.auth.resetPasswordForEmail(request.email, {
+          redirectTo: redirectUrl,
+        });
+        console.log(`[SMTP Delivery Success] Dispatched onboarding email via Supabase SMTP to ${request.email}`);
+      } catch (smtpErr) {
+        console.warn(`[SMTP Delivery Warning] ${smtpErr}`);
+      }
+    }
 
     // Update Registration Request status to approved
     await adminClient

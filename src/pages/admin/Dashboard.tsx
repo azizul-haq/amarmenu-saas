@@ -28,6 +28,7 @@ import PendingRequests from "./PendingRequests";
 import AllRestaurants from "./AllRestaurants";
 import Analytics from "./Analytics";
 import Billing from "./Billing";
+import { RoleBasedSearchBar } from "../../components/common/RoleBasedSearchBar";
 
 interface NavGroup {
   title: string;
@@ -328,6 +329,11 @@ const AdminDashboard: React.FC = () => {
               <Radio className="w-3 h-3 text-emerald-500 mr-1.5 animate-pulse" />
               Multi-Tenant Network Online
             </span>
+          </div>
+
+          {/* Central Role-based Search Bar */}
+          <div className="hidden sm:flex flex-1 max-w-sm md:max-w-md mx-4 justify-center">
+            <RoleBasedSearchBar />
           </div>
 
           {/* Right Utilities: Time & Status */}

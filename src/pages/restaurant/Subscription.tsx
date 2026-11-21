@@ -45,7 +45,7 @@ export const SubscriptionPage: React.FC = () => {
     let rId = authRestaurantId || restaurant?.id || "";
 
     if (!rId) {
-      const currentRestaurant = localStorage.getItem("current_restaurant");
+      const currentRestaurant = sessionStorage.getItem("current_restaurant") || localStorage.getItem("current_restaurant");
       if (currentRestaurant) {
         try {
           const parsed = JSON.parse(currentRestaurant);
@@ -58,7 +58,7 @@ export const SubscriptionPage: React.FC = () => {
 
     if (!rId) {
       try {
-        const user = JSON.parse(localStorage.getItem("user") || "{}");
+        const user = JSON.parse(sessionStorage.getItem("user") || localStorage.getItem("user") || "{}");
         rId = user.restaurant_id || "";
       } catch {
         // fallback

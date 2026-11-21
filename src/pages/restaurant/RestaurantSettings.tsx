@@ -22,7 +22,7 @@ const RestaurantSettings: React.FC = () => {
       try {
         const effectiveId = restaurantId || authRestaurant?.id;
         if (!effectiveId) {
-          const user = JSON.parse(localStorage.getItem("user") || "{}");
+          const user = JSON.parse(sessionStorage.getItem("user") || localStorage.getItem("user") || "{}");
           if (!user.restaurant_id) {
             setError("Restaurant ID not found");
             setLoading(false);

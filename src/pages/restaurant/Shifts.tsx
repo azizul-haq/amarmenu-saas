@@ -36,7 +36,7 @@ export const ShiftsPage: React.FC = () => {
     let targetName = authRestaurant?.name || "";
 
     if (!targetRestaurantId) {
-      const currentRestaurant = localStorage.getItem("current_restaurant");
+      const currentRestaurant = sessionStorage.getItem("current_restaurant") || localStorage.getItem("current_restaurant");
       if (currentRestaurant) {
         try {
           const parsed = JSON.parse(currentRestaurant);

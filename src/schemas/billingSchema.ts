@@ -10,9 +10,10 @@ export const cashSettlementSchema = z
   })
   .refine(
     (data) => {
-      // For cash, tendered amount must cover the discounted payable amount
-      const netPayable = Math.max(0, data.payable_total - (data.discount || 0));
-      return data.tendered_amount >= netPayable;
+      // For cash, tendered amount must cover the discounted payable amount (rounded to 2 decimal places)
+      const netPayable = Math.round(Math.max(0, data.payable_total - (data.discount || 0)) * 100) / 100;
+      const tendered = Math.round(data.tendered_amount * 100) / 100;
+      return tendered >= netPayable - 0.005;
     },
     {
       message: "Tendered amount must be greater than or equal to the net payable amount",

@@ -100,10 +100,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (restData) {
             loadedRestaurant = restData as Restaurant;
             setRestaurant(loadedRestaurant);
-            localStorage.setItem("current_restaurant", JSON.stringify(loadedRestaurant));
+            sessionStorage.setItem("current_restaurant", JSON.stringify(loadedRestaurant));
           }
         }
-        localStorage.setItem("user", JSON.stringify({ ...staff, restaurant_id: staff.restaurant_id }));
+        sessionStorage.setItem("user", JSON.stringify({ ...staff, restaurant_id: staff.restaurant_id }));
         return {
           role: staff.role as UserRole,
           restaurant: loadedRestaurant,
@@ -112,6 +112,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // No role found
+      sessionStorage.removeItem("user");
+      sessionStorage.removeItem("admin");
+      sessionStorage.removeItem("current_restaurant");
       localStorage.removeItem("user");
       localStorage.removeItem("admin");
       localStorage.removeItem("current_restaurant");
@@ -283,7 +286,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     setLoading(true);
     try {
-      // 1. Immediately wipe local storage and memory state
+      // 1. Immediately wipe session and local storage and memory state
+      sessionStorage.removeItem("user");
+      sessionStorage.removeItem("admin");
+      sessionStorage.removeItem("current_restaurant");
       localStorage.removeItem("user");
       localStorage.removeItem("admin");
       localStorage.removeItem("current_restaurant");

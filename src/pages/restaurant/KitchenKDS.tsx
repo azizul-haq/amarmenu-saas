@@ -10,6 +10,8 @@ import {
   Volume2,
   VolumeX,
   Package,
+  Search,
+  X,
 } from "lucide-react";
 import {
   subscribeToKitchenOrders,
@@ -28,6 +30,7 @@ const KitchenKDS: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [restaurantName, setRestaurantName] = useState(authRestaurant?.name || "Kitchen");
   const [orderTypeFilter, setOrderTypeFilter] = useState<"all" | "table" | "counter">("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
@@ -39,7 +42,7 @@ const KitchenKDS: React.FC = () => {
     let targetName = authRestaurant?.name || "";
 
     if (!targetRestaurantId) {
-      const currentRestaurant = localStorage.getItem("current_restaurant");
+      const currentRestaurant = sessionStorage.getItem("current_restaurant") || localStorage.getItem("current_restaurant");
       if (currentRestaurant) {
         try {
           const parsed = JSON.parse(currentRestaurant);
@@ -97,11 +100,26 @@ const KitchenKDS: React.FC = () => {
     await recordKOTPrint(order.id);
   };
 
-  // Filter orders by order_type
+  // Filter orders by order_type & live search query
   const filteredOrders = kitchenOrders.filter((order) => {
-    if (orderTypeFilter === "all") return true;
-    if (orderTypeFilter === "table") return order.order_type === "table" || order.order_type === "qr";
-    if (orderTypeFilter === "counter") return order.order_type === "counter";
+    if (orderTypeFilter === "table" && !(order.order_type === "table" || order.order_type === "qr")) return false;
+    if (orderTypeFilter === "counter" && order.order_type !== "counter") return false;
+
+    if (searchQuery.trim()) {
+      const term = searchQuery.trim().toLowerCase();
+      const orderNum = (order.order_number || "").toLowerCase();
+      const tableNum = (order.table_number || "").toLowerCase();
+      const matchesDish =
+        Array.isArray(order.items) &&
+        order.items.some(
+          (it: any) =>
+            (it.name && it.name.toLowerCase().includes(term)) ||
+            (it.name_bn && it.name_bn.toLowerCase().includes(term))
+        );
+      if (!orderNum.includes(term) && !tableNum.includes(term) && !matchesDish) {
+        return false;
+      }
+    }
     return true;
   });
 
@@ -140,7 +158,27 @@ const KitchenKDS: React.FC = () => {
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Live Kitchen Search */}
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter table, order #, dish..."
+              className="pl-8 pr-7 py-1.5 bg-gray-800 border border-gray-700 rounded-xl text-xs text-white placeholder-gray-400 focus:outline-none focus:border-accent w-40 sm:w-52"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
           {/* Order Type Filter */}
           <div className="flex bg-gray-800 p-0.5 rounded-xl border border-gray-700 text-xs font-semibold">
             <button

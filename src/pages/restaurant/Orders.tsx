@@ -18,6 +18,8 @@ import {
   LayoutGrid,
   List,
   ChefHat,
+  Search,
+  X,
 } from "lucide-react";
 import {
   Card,
@@ -52,6 +54,7 @@ const Orders: React.FC = () => {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [printOrder, setPrintOrder] = useState<Order | null>(null);
   const [settleOrder, setSettleOrder] = useState<Order | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
@@ -75,7 +78,7 @@ const Orders: React.FC = () => {
     let targetName = authRestaurant?.name || "";
 
     if (!targetRestaurantId) {
-      const currentRestaurant = localStorage.getItem("current_restaurant");
+      const currentRestaurant = sessionStorage.getItem("current_restaurant") || localStorage.getItem("current_restaurant");
       if (currentRestaurant) {
         try {
           const parsed = JSON.parse(currentRestaurant);
@@ -125,9 +128,36 @@ const Orders: React.FC = () => {
     };
   }, []);
 
+  // Live search matcher
+  const matchesSearch = (order: Order, q: string) => {
+    if (!q.trim()) return true;
+    const term = q.trim().toLowerCase();
+    const orderNum = (order.order_number || "").toLowerCase();
+    const invoiceNum = (order.invoice_number || "").toLowerCase();
+    const custName = (order.customer_name || "").toLowerCase();
+    const custPhone = (order.customer_phone || "").toLowerCase();
+    const tableNum = (order.table_number || "").toLowerCase();
+    const matchesDish =
+      Array.isArray(order.items) &&
+      order.items.some(
+        (it: any) =>
+          (it.name && it.name.toLowerCase().includes(term)) ||
+          (it.name_bn && it.name_bn.toLowerCase().includes(term))
+      );
+    return (
+      orderNum.includes(term) ||
+      invoiceNum.includes(term) ||
+      custName.includes(term) ||
+      custPhone.includes(term) ||
+      tableNum.includes(term) ||
+      matchesDish
+    );
+  };
+
   // Filter and sort orders
   const filteredOrders = orders
     .filter((order) => {
+      if (!matchesSearch(order, searchQuery)) return false;
       if (statusFilter === "all") return true;
       if (statusFilter === "cancelled") {
         return order.status === "cancelled" || order.status === "rejected";
@@ -227,7 +257,7 @@ const Orders: React.FC = () => {
       badgeColor: "bg-amber-100 text-amber-800 border-amber-300",
       headerBg: "bg-amber-500",
       borderTop: "border-t-4 border-amber-500",
-      orders: orders.filter((o) => o.status === "pending"),
+      orders: orders.filter((o) => o.status === "pending" && matchesSearch(o, searchQuery)),
     },
     {
       id: "accepted",
@@ -235,7 +265,7 @@ const Orders: React.FC = () => {
       badgeColor: "bg-blue-100 text-blue-800 border-blue-300",
       headerBg: "bg-blue-600",
       borderTop: "border-t-4 border-blue-600",
-      orders: orders.filter((o) => o.status === "accepted"),
+      orders: orders.filter((o) => o.status === "accepted" && matchesSearch(o, searchQuery)),
     },
     {
       id: "preparing",
@@ -243,7 +273,7 @@ const Orders: React.FC = () => {
       badgeColor: "bg-orange-100 text-orange-800 border-orange-300",
       headerBg: "bg-orange-600",
       borderTop: "border-t-4 border-orange-600",
-      orders: orders.filter((o) => o.status === "preparing"),
+      orders: orders.filter((o) => o.status === "preparing" && matchesSearch(o, searchQuery)),
     },
     {
       id: "ready",
@@ -251,7 +281,7 @@ const Orders: React.FC = () => {
       badgeColor: "bg-emerald-100 text-emerald-800 border-emerald-300",
       headerBg: "bg-emerald-600",
       borderTop: "border-t-4 border-emerald-600",
-      orders: orders.filter((o) => o.status === "ready"),
+      orders: orders.filter((o) => o.status === "ready" && matchesSearch(o, searchQuery)),
     },
   ];
 
@@ -305,10 +335,33 @@ const Orders: React.FC = () => {
         </div>
       </div>
 
-      {/* Real-time indicator */}
-      <div className="flex items-center space-x-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg w-fit">
-        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-        <span>Live Realtime Sync • Waiter confirmation active</span>
+      {/* Search and Real-time Status Controls Row */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        {/* Live Filter Search Input */}
+        <div className="relative flex-1 max-w-md">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search orders by customer, phone, order #, table, or dish..."
+            className="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-orange-500 shadow-2xs"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Real-time indicator */}
+        <div className="flex items-center space-x-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg w-fit">
+          <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+          <span>Live Realtime Sync • Waiter confirmation active</span>
+        </div>
       </div>
 
       {viewMode === "kanban" ? (

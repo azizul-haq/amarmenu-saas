@@ -24,7 +24,7 @@ export const AuditLogsPage: React.FC = () => {
     let targetRestaurantId = authRestaurantId || restaurant?.id || "";
 
     if (!targetRestaurantId) {
-      const currentRestaurant = localStorage.getItem("current_restaurant");
+      const currentRestaurant = sessionStorage.getItem("current_restaurant") || localStorage.getItem("current_restaurant");
       if (currentRestaurant) {
         try {
           const parsed = JSON.parse(currentRestaurant);

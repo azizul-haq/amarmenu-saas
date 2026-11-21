@@ -36,6 +36,7 @@ import { supabase } from "../../config/supabase";
 import { getTenantSubscriptionDetails } from "../../services/subscriptionService";
 import type { TenantSubscriptionRecord } from "../../schemas/subscriptionSchema";
 import { SubmitPaymentModal } from "../../components/restaurant/SubmitPaymentModal";
+import { RoleBasedSearchBar } from "../../components/common/RoleBasedSearchBar";
 import RestaurantHome from "./RestaurantHome";
 import Orders from "./Orders";
 import KitchenKDS from "./KitchenKDS";
@@ -484,6 +485,11 @@ const RestaurantDashboard: React.FC = () => {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
               Kitchen Live
             </span>
+          </div>
+
+          {/* Central Role-based Search Bar */}
+          <div className="hidden sm:flex flex-1 max-w-sm md:max-w-md mx-4 justify-center">
+            <RoleBasedSearchBar />
           </div>
 
           {/* Right Utilities: Time & Status */}

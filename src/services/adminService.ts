@@ -11,6 +11,8 @@ export interface ApprovalResult {
   inviteLink?: string;
   email?: string;
   ownerName?: string;
+  emailSent?: boolean;
+  emailError?: string;
   error?: string;
 }
 
@@ -68,61 +70,54 @@ export const createRestaurantAccount = async (
   }
 ): Promise<ApprovalResult> => {
   try {
-    // 1. Try invoking the Supabase Edge Function 'approve-registration'
-    try {
-      const { data: edgeData, error: edgeError } = await supabase.functions.invoke(
-        "approve-registration",
-        {
-          body: {
-            requestId,
-            subscriptionPlan: data.subscriptionPlan,
-            internalNotes: data.internalNotes,
-            appUrl: window.location.origin,
-          },
-        }
-      );
-
-      if (!edgeError && edgeData && edgeData.success) {
-        return {
-          success: true,
-          restaurant: edgeData.restaurant,
-          inviteLink: edgeData.inviteLink,
-          email: edgeData.email,
-          ownerName: edgeData.ownerName,
-        };
-      }
-    } catch {
-      // If Edge Function is not deployed or network fails, proceed to server RPC fallback
-    }
-
-    // 2. Server-side RPC fallback: approve_registration_request
-    const { data: rpcData, error: rpcError } = await supabase.rpc(
-      "approve_registration_request",
+    const { data: edgeData, error: edgeError } = await supabase.functions.invoke(
+      "approve-registration",
       {
-        p_request_id: requestId,
-        p_subscription_plan: data.subscriptionPlan,
-        p_internal_notes: data.internalNotes || null,
-        p_email: data.email || null,
+        body: {
+          requestId,
+          subscriptionPlan: data.subscriptionPlan,
+          internalNotes: data.internalNotes,
+          appUrl: window.location.origin,
+        },
       }
     );
 
-    if (rpcError) {
-      console.error("Approval RPC error:", rpcError);
-      throw new Error(rpcError.message);
+    if (edgeError) {
+      console.error("approve-registration edge error:", edgeError);
+      let errMsg = edgeError.message;
+      if (typeof edgeError === "object" && "context" in edgeError) {
+        try {
+          const body = await (edgeError as any).context.json();
+          if (body?.error) errMsg = body.error;
+        } catch {
+          // ignore
+        }
+      }
+      return {
+        success: false,
+        error: errMsg || "Failed to approve registration",
+      };
     }
 
-    const inviteLink = `${window.location.origin}/set-password?email=${encodeURIComponent(data.email)}`;
+    if (!edgeData || !edgeData.success) {
+      return {
+        success: false,
+        error: edgeData?.error || "Registration approval failed",
+      };
+    }
 
     return {
       success: true,
       restaurant: {
-        id: rpcData.restaurant_id,
-        name: rpcData.restaurant_name,
-        slug: rpcData.slug,
+        id: edgeData.restaurantId,
+        name: edgeData.restaurantName || "Restaurant",
+        slug: edgeData.restaurantSlug,
       },
-      inviteLink,
-      email: data.email,
-      ownerName: rpcData.owner_name,
+      inviteLink: edgeData.inviteLink,
+      email: edgeData.ownerEmail || data.email,
+      ownerName: edgeData.ownerName,
+      emailSent: edgeData.email_sent ?? true,
+      emailError: edgeData.email_error,
     };
   } catch (error: unknown) {
     console.error("Create account error:", error);
@@ -243,25 +238,48 @@ export const getPlatformStats = async () => {
 };
 
 /**
- * Resend invitation link for a restaurant owner (Super Admin only)
+ * Resend invitation email for a restaurant owner (Super Admin only)
  * Resolves owner server-side, checks last_sign_in_at, rate limits, audits.
  */
 export const resendRestaurantInvite = async (
   restaurantId: string
-): Promise<{ success: boolean; message?: string; inviteLink?: string; ownerEmail?: string; error?: string }> => {
+): Promise<{ success: boolean; message?: string; inviteLink?: string; ownerEmail?: string; email_sent?: boolean; error?: string }> => {
   const { data, error } = await supabase.functions.invoke("approve-registration", {
     body: {
       action: "resend_invite",
       restaurantId,
+      appUrl: window.location.origin,
     },
   });
 
-  if (error || !data) {
+  if (error) {
+    let errMsg = error.message;
+    if (typeof error === "object" && "context" in error) {
+      try {
+        const body = await (error as any).context.json();
+        if (body?.error) errMsg = body.error;
+      } catch {
+        // ignore
+      }
+    }
     return {
       success: false,
-      error: error?.message || "Failed to resend invite",
+      error: errMsg || "Failed to resend invite",
     };
   }
 
-  return data;
+  if (!data?.success) {
+    return {
+      success: false,
+      error: data?.error || "Failed to resend invite",
+    };
+  }
+
+  return {
+    success: true,
+    email_sent: data.email_sent,
+    message: data.message || `Onboarding invitation email sent to ${data.ownerEmail || "owner"}.`,
+    ownerEmail: data.ownerEmail,
+    inviteLink: data.inviteLink,
+  };
 };

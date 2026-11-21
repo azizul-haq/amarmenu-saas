@@ -8,8 +8,8 @@ import {
   X,
   Clock,
   AlertCircle,
-  Copy,
-  Check,
+  MailCheck,
+  Send,
 } from "lucide-react";
 import {
   Card,
@@ -26,10 +26,11 @@ import {
   subscribeToPendingRequests,
   createRestaurantAccount,
   rejectRegistrationRequest,
+  resendRestaurantInvite,
   type ApprovalResult,
 } from "../../services/adminService";
 import type { RegistrationRequest } from "../../config/supabase";
-import { formatDateTime, copyToClipboard } from "../../utils/helpers";
+import { formatDateTime } from "../../utils/helpers";
 import { APP_CONFIG } from "../../config/config";
 
 const PendingRequests: React.FC = () => {
@@ -239,7 +240,7 @@ const PendingRequests: React.FC = () => {
       />
 
       {/* Approval & Onboarding Display Modal */}
-      <CredentialsModal
+      <ApprovalSuccessModal
         isOpen={showCredentialsModal}
         result={approvalResult}
         onClose={() => {
@@ -271,9 +272,6 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
     email: "",
     subscriptionPlan: "growth",
     internalNotes: "",
-    sendViaSMS: true,
-    sendViaWhatsApp: true,
-    sendViaEmail: true,
   });
 
   useEffect(() => {
@@ -351,7 +349,7 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
           onChange={(e) => setFormData({ ...formData, email: e.target.value })}
           placeholder="owner@restaurant.com"
           required
-          helperText="This will be used for login"
+          helperText="An invitation will be sent to this email address"
         />
 
         <Select
@@ -379,55 +377,12 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
           rows={2}
         />
 
-        {/* Send Credentials Via */}
-        <div>
-          <label className="label mb-3">Send Credentials Via</label>
-          <div className="space-y-2">
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.sendViaSMS}
-                onChange={(e) =>
-                  setFormData({ ...formData, sendViaSMS: e.target.checked })
-                }
-                className="rounded border-border"
-              />
-              <span className="text-text">SMS</span>
-            </label>
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.sendViaWhatsApp}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    sendViaWhatsApp: e.target.checked,
-                  })
-                }
-                className="rounded border-border"
-              />
-              <span className="text-text">WhatsApp</span>
-            </label>
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.sendViaEmail}
-                onChange={(e) =>
-                  setFormData({ ...formData, sendViaEmail: e.target.checked })
-                }
-                className="rounded border-border"
-              />
-              <span className="text-text">Email</span>
-            </label>
-          </div>
-        </div>
-
-        {/* Info */}
-        <div className="bg-accent-secondary/10 border border-accent-secondary/20 rounded-lg p-3 text-sm">
-          <AlertCircle className="w-4 h-4 text-accent-secondary inline mr-2" />
+        {/* Email Dispatch Info */}
+        <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-sm flex items-start gap-2.5">
+          <Mail className="w-4 h-4 text-primary shrink-0 mt-0.5" />
           <span className="text-text-secondary">
-            A temporary password will be generated and sent to the restaurant.
-            They can change it after first login.
+            An onboarding invitation email with a secure password setup link will be automatically sent to{" "}
+            <strong className="text-text">{formData.email || "the owner's email"}</strong>.
           </span>
         </div>
 
@@ -437,7 +392,7 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
             Cancel
           </Button>
           <Button type="submit" loading={loading} fullWidth>
-            Create Account & Send Credentials
+            Approve & Send Invitation Email
           </Button>
         </div>
       </form>
@@ -528,115 +483,166 @@ const RejectModal: React.FC<RejectModalProps> = ({
   );
 };
 
-// Onboarding & Invitation Display Modal
-interface CredentialsModalProps {
+// Approval Confirmation & Onboarding Modal (Email-Only Flow)
+interface ApprovalSuccessModalProps {
   isOpen: boolean;
   result: ApprovalResult | null;
   onClose: () => void;
 }
 
-const CredentialsModal: React.FC<CredentialsModalProps> = ({
+const ApprovalSuccessModal: React.FC<ApprovalSuccessModalProps> = ({
   isOpen,
   result,
   onClose,
 }) => {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    if (!result?.inviteLink) return;
-    const success = await copyToClipboard(result.inviteLink);
-    if (success) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
+  const [resending, setResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [resendError, setResendError] = useState<string | null>(null);
 
   if (!result) return null;
+
+  const isEmailSent = result.emailSent !== false && !result.emailError;
+
+  const handleResend = async () => {
+    if (!result.restaurant?.id) return;
+    setResending(true);
+    setResendMessage(null);
+    setResendError(null);
+    try {
+      const res = await resendRestaurantInvite(result.restaurant.id);
+      if (res.success) {
+        setResendMessage(res.message || `Invitation email resent to ${result.email || "owner"}.`);
+      } else {
+        setResendError(res.error || "Failed to resend email.");
+      }
+    } catch (err: unknown) {
+      setResendError(err instanceof Error ? err.message : "Error resending invitation email");
+    } finally {
+      setResending(false);
+    }
+  };
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Restaurant Approved Successfully!"
+      title={isEmailSent ? "Restaurant Approved & Email Sent!" : "Restaurant Approved"}
       size="md"
     >
       <div className="space-y-6">
-        {/* Success Message */}
+        {/* Success Icon & Header */}
         <div className="text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/10 mb-4">
-            <CheckCircle className="w-10 h-10 text-success" />
+          <div
+            className={`inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 ${
+              isEmailSent ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+            }`}
+          >
+            {isEmailSent ? (
+              <MailCheck className="w-10 h-10 text-emerald-600" />
+            ) : (
+              <AlertCircle className="w-10 h-10 text-amber-600" />
+            )}
           </div>
-          <h3 className="text-lg font-bold text-text">
-            {result.restaurant?.name}
+          <h3 className="text-xl font-bold text-text">
+            {result.restaurant?.name || "Restaurant"}
           </h3>
           <p className="text-sm text-text-secondary mt-1">
-            Account created without temporary passwords. The owner sets their own secure password via the link below.
+            {isEmailSent ? (
+              <>
+                An onboarding invitation with a secure password setup link has been automatically sent to{" "}
+                <strong className="text-text font-semibold">{result.email}</strong>.
+              </>
+            ) : (
+              <>Restaurant created, but email dispatch reported an issue.</>
+            )}
           </p>
         </div>
 
-        {/* Invitation & Access Link */}
-        <div className="bg-bg-subtle rounded-lg p-4 space-y-3">
-          <h4 className="font-semibold text-text text-sm">
-            Owner Onboarding Details
+        {/* Email Error Alert if email dispatch failed */}
+        {!isEmailSent && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3.5 text-sm text-red-700 space-y-1">
+            <div className="font-semibold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>Email Delivery Failed:</span>
+            </div>
+            <p className="text-xs text-red-600 ml-6 break-words">
+              {result.emailError || "Could not deliver email via configured SMTP settings."}
+            </p>
+          </div>
+        )}
+
+        {/* Resend Status feedback */}
+        {resendMessage && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-emerald-700 flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{resendMessage}</span>
+          </div>
+        )}
+
+        {resendError && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{resendError}</span>
+          </div>
+        )}
+
+        {/* Restaurant Summary Details */}
+        <div className="bg-bg-subtle rounded-xl p-4 border border-border/50 space-y-2.5 text-sm">
+          <h4 className="font-semibold text-text text-xs uppercase tracking-wider text-text-secondary">
+            Onboarding Summary
           </h4>
-          <div className="space-y-2 text-sm">
+          <div className="grid grid-cols-2 gap-3 text-xs">
             <div>
-              <label className="text-xs text-text-secondary">Owner Email</label>
-              <p className="font-mono text-text">{result.email}</p>
+              <span className="text-text-secondary block">Owner:</span>
+              <span className="font-medium text-text">{result.ownerName || "Owner"}</span>
             </div>
             <div>
-              <label className="text-xs text-text-secondary">Restaurant Slug</label>
-              <p className="font-mono text-accent font-medium">
-                {result.restaurant?.slug}
-              </p>
+              <span className="text-text-secondary block">Owner Email:</span>
+              <span className="font-medium text-text truncate block">{result.email}</span>
             </div>
-            {result.inviteLink && (
-              <div>
-                <label className="text-xs text-text-secondary">
-                  Invitation & Set-Password URL
-                </label>
-                <div
-                  onClick={handleCopy}
-                  className="mt-1 p-2 bg-white rounded border border-border break-all font-mono text-xs text-accent flex items-center justify-between gap-2 cursor-pointer hover:border-accent transition-colors group"
-                  title="Click to copy URL"
-                >
-                  <span className="break-all select-all">{result.inviteLink}</span>
-                  <span className="shrink-0 text-text-secondary group-hover:text-accent p-1">
-                    {copied ? (
-                      <Check className="w-3.5 h-3.5 text-success" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                  </span>
-                </div>
-              </div>
-            )}
+            <div>
+              <span className="text-text-secondary block">Restaurant Slug:</span>
+              <span className="font-mono text-accent font-medium">{result.restaurant?.slug}</span>
+            </div>
+            <div>
+              <span className="text-text-secondary block">Email Status:</span>
+              <span
+                className={`inline-flex items-center gap-1 font-medium ${
+                  isEmailSent ? "text-emerald-600" : "text-amber-600"
+                }`}
+              >
+                {isEmailSent ? "Dispatched" : "Pending / Retry"}
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Copy Button */}
-        {result.inviteLink && (
-          <Button
-            variant="outline"
-            fullWidth
-            icon={copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
-            onClick={handleCopy}
-          >
-            {copied ? "Copied to Clipboard!" : "Copy Onboarding Link"}
-          </Button>
-        )}
-
-        {/* Info */}
-        <div className="bg-accent-secondary/10 border border-accent-secondary/20 rounded-lg p-3 text-sm">
-          <AlertCircle className="w-4 h-4 text-accent-secondary inline mr-2" />
-          <span className="text-text-secondary">
-            Share this link via WhatsApp, SMS, or Email. When the owner opens this link, they will choose their permanent password and directly enter their restaurant dashboard.
+        {/* Information Notice */}
+        <div className="bg-blue-50 border border-blue-200/60 rounded-lg p-3 text-xs text-blue-800 flex items-start gap-2">
+          <Mail className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+          <span>
+            The owner will receive an email with instructions to set their permanent password and access their restaurant POS and dashboard directly.
           </span>
         </div>
 
-        <Button onClick={onClose} fullWidth>
-          Done
-        </Button>
+        {/* Actions */}
+        <div className="flex gap-3 pt-1">
+          {result.restaurant?.id && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleResend}
+              loading={resending}
+              icon={<Send className="w-4 h-4" />}
+              fullWidth
+            >
+              Resend Email
+            </Button>
+          )}
+          <Button onClick={onClose} fullWidth>
+            Done
+          </Button>
+        </div>
       </div>
     </Modal>
   );

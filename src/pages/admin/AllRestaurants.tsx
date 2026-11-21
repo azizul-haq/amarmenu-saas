@@ -348,22 +348,18 @@ const AllRestaurants: React.FC = () => {
         <Modal
           isOpen={true}
           onClose={() => setResendStatus(null)}
-          title="Invitation Status"
+          title="Invitation Email Status"
         >
           <div className="space-y-4">
-            <p className="text-text">{resendStatus.message}</p>
-            {resendStatus.link && (
-              <div className="p-3 bg-bg-subtle rounded-lg border border-border space-y-2">
-                <p className="text-xs text-text-secondary font-medium">Single-Use Activation Link (Shown Once):</p>
-                <input
-                  type="text"
-                  readOnly
-                  value={resendStatus.link}
-                  className="w-full text-xs font-mono p-2 bg-bg border border-border rounded text-text select-all"
-                  onClick={(e) => (e.target as HTMLInputElement).select()}
-                />
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                <CheckCircle className="w-6 h-6 text-emerald-600" />
               </div>
-            )}
+              <p className="text-sm text-text font-medium">{resendStatus.message}</p>
+            </div>
+            <p className="text-xs text-text-secondary">
+              An onboarding invitation email with password setup instructions has been dispatched directly to the restaurant owner.
+            </p>
             <Button fullWidth onClick={() => setResendStatus(null)}>
               Close
             </Button>

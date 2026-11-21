@@ -12,6 +12,40 @@ interface RequestPayload {
   restaurantId?: string;
   subscriptionPlan?: string;
   internalNotes?: string;
+  appUrl?: string;
+}
+
+function resolveTargetAppUrl(req: Request, body?: RequestPayload): string {
+  // 1. Explicit environment variable set in Supabase Secrets
+  const envUrl = Deno.env.get("APP_URL");
+  if (envUrl && envUrl.trim()) {
+    return envUrl.trim().replace(/\/+$/, "");
+  }
+
+  // 2. Client sent appUrl in body (e.g. window.location.origin)
+  if (body?.appUrl && typeof body.appUrl === "string" && body.appUrl.startsWith("http")) {
+    return body.appUrl.trim().replace(/\/+$/, "");
+  }
+
+  // 3. Request Origin header
+  const origin = req.headers.get("origin");
+  if (origin && origin.startsWith("http")) {
+    return origin.trim().replace(/\/+$/, "");
+  }
+
+  // 4. Request Referer header
+  const referer = req.headers.get("referer");
+  if (referer && referer.startsWith("http")) {
+    try {
+      const u = new URL(referer);
+      return u.origin.replace(/\/+$/, "");
+    } catch {
+      // ignore
+    }
+  }
+
+  // 5. Live Production Vercel domain fallback (never localhost in production)
+  return "https://amarmenu-saas.vercel.app";
 }
 
 interface SendEmailParams {
@@ -124,8 +158,6 @@ serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    // Base URL strictly comes from server environment variable, never from client body or headers
-    const targetAppUrl = Deno.env.get("APP_URL") || "http://localhost:5173";
 
     if (!supabaseUrl || !supabaseServiceRoleKey) {
       throw new Error("Missing Supabase environment variables on server");
@@ -175,6 +207,7 @@ serve(async (req: Request) => {
     }
 
     const body: RequestPayload = await req.json();
+    const targetAppUrl = resolveTargetAppUrl(req, body);
 
     // =========================================================================
     // ACTION: RESEND INVITE LINK (Items 7, 8, 9)
@@ -260,47 +293,53 @@ serve(async (req: Request) => {
         );
       }
 
-      // Account has never signed in: generate recovery link for existing owner user
-      const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
-        type: "recovery",
-        email: ownerStaff.email,
-        options: {
-          redirectTo: `${targetAppUrl}/set-password`,
-        },
+      // Dispatch password reset email via Supabase Auth SMTP (Gmail SMTP)
+      const { error: resetErr } = await adminClient.auth.resetPasswordForEmail(ownerStaff.email, {
+        redirectTo: `${targetAppUrl}/set-password`,
       });
 
-      if (linkError || !linkData) {
-        throw new Error(`Failed to generate activation recovery link: ${linkError?.message}`);
+      let emailSent = !resetErr;
+      let emailError = resetErr ? resetErr.message : null;
+
+      if (Deno.env.get("RESEND_API_KEY")) {
+        const { data: linkData } = await adminClient.auth.admin.generateLink({
+          type: "recovery",
+          email: ownerStaff.email,
+          options: { redirectTo: `${targetAppUrl}/set-password` },
+        });
+        const tokenHash = linkData?.properties?.hashed_token || "";
+        const freshLink = `${targetAppUrl}/set-password?token_hash=${tokenHash}&type=recovery`;
+
+        const resendRes = await sendOnboardingEmail({
+          to: ownerStaff.email,
+          ownerName: ownerStaff.full_name,
+          restaurantName: "Your Restaurant",
+          actionLink: freshLink,
+          linkType: "recovery",
+        });
+        if (resendRes.sent) {
+          emailSent = true;
+          emailError = null;
+        }
       }
 
-      const tokenHash = linkData.properties?.hashed_token || "";
-      const freshLink = `${targetAppUrl}/set-password?token_hash=${tokenHash}&type=recovery`;
-
-      // Dispatch real email via Resend if configured, otherwise dispatch via Supabase Auth SMTP (e.g. Gmail SMTP)
-      const emailResult = await sendOnboardingEmail({
-        to: ownerStaff.email,
-        ownerName: ownerStaff.full_name,
-        restaurantName: "Your Restaurant",
-        actionLink: freshLink,
-        linkType: "recovery",
-      });
-
-      if (!emailResult.sent) {
-        try {
-          await adminClient.auth.resetPasswordForEmail(ownerStaff.email, {
-            redirectTo: `${targetAppUrl}/set-password`,
-          });
-          console.log(`[SMTP Delivery Success] Dispatched recovery email via Supabase SMTP to ${ownerStaff.email}`);
-        } catch (smtpErr) {
-          console.warn(`[SMTP Delivery Warning] ${smtpErr}`);
-        }
+      if (!emailSent) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            email_sent: false,
+            error: `Failed to dispatch email via SMTP: ${emailError || "Unknown error"}`,
+            ownerEmail: ownerStaff.email,
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
 
       // Audit log WITHOUT token or URL
       await adminClient.from("platform_audit_logs").insert({
         actor_id: user.id,
         actor_email: user.email,
-        action: "resend_invite_recovery_link_generated",
+        action: "resend_invite_dispatched",
         target_type: "restaurant",
         target_id: restaurantId,
         old_values: null,
@@ -309,15 +348,14 @@ serve(async (req: Request) => {
           status: "pending_activation",
           path_run: "recovery",
         },
-        reason: "Super Admin regenerated activation recovery link for never-signed-in owner",
+        reason: "Super Admin resent onboarding invitation email for never-signed-in owner",
       });
 
       return new Response(
         JSON.stringify({
           success: true,
-          message: "Activation link generated successfully.",
-          inviteLink: freshLink,
-          linkType: "recovery",
+          email_sent: true,
+          message: `Onboarding invitation email sent successfully to ${ownerStaff.email}.`,
           ownerEmail: ownerStaff.email,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -474,22 +512,41 @@ serve(async (req: Request) => {
 
     // Dispatch real onboarding email with set-password link via Resend if configured,
     // otherwise dispatch via Supabase Auth SMTP (e.g. Gmail SMTP configured in Supabase Dashboard)
-    const emailResult = await sendOnboardingEmail({
-      to: request.email,
-      ownerName: request.owner_name,
-      restaurantName: request.restaurant_name,
-      actionLink: actionLink,
-      linkType: effectiveLinkType,
-    });
+    let emailSent = false;
+    let emailError: string | null = null;
 
-    if (!emailResult.sent) {
-      try {
-        await adminClient.auth.resetPasswordForEmail(request.email, {
+    if (Deno.env.get("RESEND_API_KEY")) {
+      const emailResult = await sendOnboardingEmail({
+        to: request.email,
+        ownerName: request.owner_name,
+        restaurantName: request.restaurant_name,
+        actionLink: actionLink,
+        linkType: effectiveLinkType,
+      });
+      if (emailResult.sent) {
+        emailSent = true;
+      } else {
+        emailError = emailResult.error || "Resend email delivery failed";
+      }
+    }
+
+    // If Resend was not used or failed, dispatch via Supabase Auth SMTP (Gmail SMTP)
+    if (!emailSent) {
+      const { error: smtpErr } = await adminClient.auth.resetPasswordForEmail(
+        request.email,
+        {
           redirectTo: redirectUrl,
-        });
+        }
+      );
+
+      if (smtpErr) {
+        emailSent = false;
+        emailError = smtpErr.message;
+        console.error(`[SMTP Delivery Error] Failed to send email via Supabase SMTP: ${smtpErr.message}`);
+      } else {
+        emailSent = true;
+        emailError = null;
         console.log(`[SMTP Delivery Success] Dispatched onboarding email via Supabase SMTP to ${request.email}`);
-      } catch (smtpErr) {
-        console.warn(`[SMTP Delivery Warning] ${smtpErr}`);
       }
     }
 
@@ -516,6 +573,7 @@ serve(async (req: Request) => {
         plan: subscriptionPlan,
         email: request.email,
         link_type: effectiveLinkType,
+        email_sent: emailSent,
       },
       reason: internalNotes || "Approved via Edge Function",
     });
@@ -525,10 +583,16 @@ serve(async (req: Request) => {
         success: true,
         restaurantId: newRestaurant.id,
         restaurantSlug: newRestaurant.slug,
+        restaurantName: newRestaurant.name,
         ownerEmail: request.email,
+        ownerName: request.owner_name,
+        email_sent: emailSent,
+        email_error: emailError,
         inviteLink: actionLink,
         linkType: effectiveLinkType,
-        message: "Registration approved successfully and onboarding link generated",
+        message: emailSent
+          ? `Restaurant approved and onboarding invitation email sent successfully to ${request.email}.`
+          : `Restaurant approved, but email delivery failed: ${emailError || "Unknown error"}`,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

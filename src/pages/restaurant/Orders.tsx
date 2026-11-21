@@ -50,6 +50,7 @@ import { useAuth } from "../../context/AuthContext";
 const Orders: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -96,42 +97,73 @@ const Orders: React.FC = () => {
     }
 
     if (!targetRestaurantId) {
-      setLoading(false);
-      return;
+      const timer = setTimeout(() => {
+        setLoading(false);
+      }, 3000);
+      return () => clearTimeout(timer);
     }
 
     if (targetName) setRestaurantName(targetName);
 
     // Fetch restaurant details securely via get_my_restaurant() RPC
-    supabase
-      .rpc("get_my_restaurant")
-      .then(({ data, error }) => {
+    (async () => {
+      try {
+        const { data, error } = await supabase.rpc("get_my_restaurant");
         if (!error && data) setRestaurantData(data as Restaurant);
-      });
+      } catch {
+        // ignore
+      }
+    })();
+
+    let isSubscribed = true;
+
+    // Safety timeout: GUARANTEED to stop "Loading orders..." within 6 seconds
+    const safetyTimer = setTimeout(() => {
+      if (isSubscribed) {
+        console.warn("Orders fetch safety timeout reached - unblocking UI");
+        setLoading(false);
+      }
+    }, 6000);
 
     // Subscribe to real-time orders
-    const subscription = subscribeToOrders(targetRestaurantId, (newOrders) => {
-      // Check for new pending orders to play sound
-      const previousPending = previousOrdersRef.current.filter(
-        (o) => o.status === "pending"
-      ).length;
-      const currentPending = newOrders.filter(
-        (o) => o.status === "pending"
-      ).length;
+    const subscription = subscribeToOrders(
+      targetRestaurantId,
+      (newOrders) => {
+        if (!isSubscribed) return;
 
-      if (currentPending > previousPending && previousPending !== 0) {
-        playSound("notification");
+        // Check for new pending orders to play sound
+        const previousPending = previousOrdersRef.current.filter(
+          (o) => o.status === "pending"
+        ).length;
+        const currentPending = newOrders.filter(
+          (o) => o.status === "pending"
+        ).length;
+
+        if (currentPending > previousPending && previousPending !== 0) {
+          playSound("notification");
+        }
+
+        previousOrdersRef.current = newOrders;
+        setOrders(newOrders);
+        setOrdersError(null);
+        setLoading(false);
+        clearTimeout(safetyTimer);
+      },
+      (fetchErr) => {
+        if (!isSubscribed) return;
+        console.error("Orders fetch subscription error:", fetchErr);
+        setOrdersError(fetchErr.message || "Failed to load orders");
+        setLoading(false);
+        clearTimeout(safetyTimer);
       }
-
-      previousOrdersRef.current = newOrders;
-      setOrders(newOrders);
-      setLoading(false);
-    });
+    );
 
     return () => {
+      isSubscribed = false;
+      clearTimeout(safetyTimer);
       subscription.unsubscribe();
     };
-  }, []);
+  }, [authRestaurantId, authRestaurant?.id]);
 
   // Live search matcher
   const matchesSearch = (order: Order, q: string) => {
@@ -358,6 +390,17 @@ const Orders: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {ordersError && (
+        <div className="flex items-center justify-between p-4 bg-rose-50 border border-rose-200 rounded-xl">
+          <div className="text-sm text-rose-700 font-medium">
+            {ordersError}
+          </div>
+          <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

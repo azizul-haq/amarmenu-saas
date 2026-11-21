@@ -29,7 +29,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     }
     const timer = setTimeout(() => {
       setHasTimedOut(true);
-    }, 4000);
+    }, 8000);
     return () => clearTimeout(timer);
   }, [loading]);
 

@@ -67,7 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const isBootDoneRef = useRef(false);
 
-  // Load user profile & role from the database
+  // Load user profile & role from the database with multi-layer fallbacks
   const loadUserProfile = useCallback(async (currentUser: User): Promise<{
     role: UserRole;
     restaurant: Restaurant | null;
@@ -75,15 +75,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }> => {
     try {
       // 1. Check if user is a platform admin (Super Admin)
-      const { data: adminData } = await supabase
-        .from("platform_admins")
-        .select("*")
-        .or(`auth_user_id.eq.${currentUser.id},email.eq.${currentUser.email}`)
-        .eq("is_active", true)
-        .maybeSingle();
+      let adminData: PlatformAdmin | null = null;
+      try {
+        const filterStr = currentUser.email
+          ? `auth_user_id.eq.${currentUser.id},email.eq.${currentUser.email}`
+          : `auth_user_id.eq.${currentUser.id}`;
+
+        const { data: adm } = await supabase
+          .from("platform_admins")
+          .select("*")
+          .or(filterStr)
+          .eq("is_active", true)
+          .limit(1)
+          .maybeSingle();
+
+        adminData = adm as PlatformAdmin | null;
+      } catch (adminErr) {
+        console.warn("Failed checking platform_admins:", adminErr);
+      }
 
       if (adminData) {
-        setPlatformAdmin(adminData as PlatformAdmin);
+        setPlatformAdmin(adminData);
         setRole("super_admin");
         setProfile(null);
         setRestaurantId(null);
@@ -93,89 +105,189 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sessionStorage.setItem("role", "super_admin");
 
         // Super Admin gets all permissions dynamically from role_permissions
-        const { data: allPerms } = await supabase
-          .from("role_permissions")
-          .select("permission");
-        const uniquePerms = Array.from(
-          new Set((allPerms || []).map((p: { permission: string }) => p.permission))
-        );
-        setPermissions(uniquePerms);
+        try {
+          const { data: allPerms } = await supabase
+            .from("role_permissions")
+            .select("permission");
+          const uniquePerms = Array.from(
+            new Set((allPerms || []).map((p: { permission: string }) => p.permission))
+          );
+          setPermissions(uniquePerms);
+        } catch {
+          // fallback
+        }
 
         return { role: "super_admin", restaurant: null, restaurantId: null };
       }
 
-      // 2. Check if user is a restaurant staff member (Owner, Manager, Cashier, etc.)
-      const { data: staffData } = await supabase
-        .from("restaurant_staff")
-        .select("id, auth_user_id, restaurant_id, full_name, phone, email, role, is_active, created_at, updated_at")
-        .or(`auth_user_id.eq.${currentUser.id},email.eq.${currentUser.email}`)
-        .eq("is_active", true)
-        .maybeSingle();
+      // 2. Check if user is a restaurant staff member (Owner, Manager, Cashier, Kitchen, Waiter)
+      let staffData: RestaurantStaff | null = null;
 
-      if (staffData) {
-        const staff = staffData as RestaurantStaff;
-        setProfile(staff);
-        setRole(staff.role as UserRole);
-        setRestaurantId(staff.restaurant_id);
+      // 2a. Match by auth_user_id first (most direct & secure)
+      if (currentUser.id) {
+        try {
+          const { data: sByAuth } = await supabase
+            .from("restaurant_staff")
+            .select("id, auth_user_id, restaurant_id, full_name, phone, email, role, is_active, created_at, updated_at")
+            .eq("auth_user_id", currentUser.id)
+            .eq("is_active", true)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (sByAuth) {
+            staffData = sByAuth as RestaurantStaff;
+          }
+        } catch (e) {
+          console.warn("Error finding staff by auth_user_id:", e);
+        }
+      }
+
+      // 2b. Fallback: match by email and self-heal auth_user_id link
+      if (!staffData && currentUser.email) {
+        try {
+          const { data: sByEmail } = await supabase
+            .from("restaurant_staff")
+            .select("id, auth_user_id, restaurant_id, full_name, phone, email, role, is_active, created_at, updated_at")
+            .ilike("email", currentUser.email.trim())
+            .eq("is_active", true)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (sByEmail) {
+            staffData = sByEmail as RestaurantStaff;
+            // Self-heal auth_user_id link if missing
+            if (!sByEmail.auth_user_id) {
+              await supabase
+                .from("restaurant_staff")
+                .update({ auth_user_id: currentUser.id })
+                .eq("id", sByEmail.id);
+            }
+          }
+        } catch (e) {
+          console.warn("Error finding staff by email:", e);
+        }
+      }
+
+      // 2c. Fallback: check app_metadata
+      const metaRole = (currentUser.app_metadata?.role as UserRole) || null;
+      const metaRestaurantId = (currentUser.app_metadata?.restaurant_id as string) || null;
+
+      if (staffData || (metaRole && metaRestaurantId)) {
+        const effectiveRole = (staffData?.role || metaRole) as UserRole;
+        const effectiveRestaurantId = staffData?.restaurant_id || metaRestaurantId;
+
+        const staffObj = staffData || ({
+          id: currentUser.id,
+          auth_user_id: currentUser.id,
+          restaurant_id: effectiveRestaurantId!,
+          full_name: (currentUser.user_metadata?.full_name as string) || currentUser.email || "Staff Member",
+          phone: (currentUser.user_metadata?.phone as string) || null,
+          email: currentUser.email || null,
+          role: effectiveRole as any,
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as RestaurantStaff);
+
+        setProfile(staffObj);
+        setRole(effectiveRole);
+        setRestaurantId(effectiveRestaurantId);
         setPlatformAdmin(null);
 
-        sessionStorage.setItem("user", JSON.stringify({ ...staff, restaurant_id: staff.restaurant_id }));
-        sessionStorage.setItem("role", staff.role);
+        sessionStorage.setItem("user", JSON.stringify({ ...staffObj, restaurant_id: effectiveRestaurantId }));
+        sessionStorage.setItem("role", effectiveRole || "");
 
         // Fetch dynamic permissions for this role from the database
-        const { data: permData } = await supabase
-          .from("role_permissions")
-          .select("permission")
-          .eq("role", staff.role);
-        const rolePerms = (permData || []).map((p: { permission: string }) => p.permission);
-        setPermissions(rolePerms);
+        if (effectiveRole) {
+          try {
+            const { data: permData } = await supabase
+              .from("role_permissions")
+              .select("permission")
+              .eq("role", effectiveRole);
+            const rolePerms = (permData || []).map((p: { permission: string }) => p.permission);
+            setPermissions(rolePerms);
+          } catch (pErr) {
+            console.warn("Failed fetching role permissions:", pErr);
+          }
+        }
 
-        // Load associated restaurant details via secure get_my_restaurant() RPC
+        // Load associated restaurant details via get_my_restaurant() RPC with direct table fallback
         let loadedRestaurant: Restaurant | null = null;
-        if (staff.restaurant_id) {
-          const { data: restData } = await supabase.rpc("get_my_restaurant");
+        if (effectiveRestaurantId) {
+          try {
+            const { data: restData, error: restErr } = await supabase.rpc("get_my_restaurant");
+            if (!restErr && restData) {
+              loadedRestaurant = restData as Restaurant;
+            }
+          } catch (rErr) {
+            console.warn("get_my_restaurant RPC failed:", rErr);
+          }
 
-          if (restData) {
-            loadedRestaurant = restData as Restaurant;
-            setRestaurant(loadedRestaurant);
-            sessionStorage.setItem("current_restaurant", JSON.stringify(loadedRestaurant));
-          } else {
-            // Fallback: restore from cache if network delay
+          if (!loadedRestaurant) {
+            try {
+              const { data: directRest } = await supabase
+                .from("restaurants")
+                .select("id, name, name_bn, slug, phone, email, address, city, logo_url, qr_code_url, currency, currency_symbol, default_vat_rate, service_charge_rate, is_active, status, subscription_plan")
+                .eq("id", effectiveRestaurantId)
+                .maybeSingle();
+
+              if (directRest) {
+                loadedRestaurant = directRest as Restaurant;
+              }
+            } catch (dErr) {
+              console.warn("Direct restaurant fetch fallback error:", dErr);
+            }
+          }
+
+          if (!loadedRestaurant) {
+            // Restore from cache if available
             const cachedRest = sessionStorage.getItem("current_restaurant");
             if (cachedRest) {
               try {
                 loadedRestaurant = JSON.parse(cachedRest);
-                setRestaurant(loadedRestaurant);
               } catch {
                 // ignore
               }
             }
           }
+
+          if (loadedRestaurant) {
+            setRestaurant(loadedRestaurant);
+            sessionStorage.setItem("current_restaurant", JSON.stringify(loadedRestaurant));
+          }
         }
 
         return {
-          role: staff.role as UserRole,
+          role: effectiveRole,
           restaurant: loadedRestaurant,
-          restaurantId: staff.restaurant_id,
+          restaurantId: effectiveRestaurantId,
         };
       }
 
-      // 3. Fallback: Check if user owns a restaurant directly
+      // 3. Fallback: Check if user owns a restaurant directly by email
       if (currentUser.email) {
-        const { data: restOwner } = await supabase
-          .from("restaurants")
-          .select("*")
-          .eq("email", currentUser.email)
-          .maybeSingle();
+        try {
+          const { data: restOwner } = await supabase
+            .from("restaurants")
+            .select("*")
+            .ilike("email", currentUser.email.trim())
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
-        if (restOwner) {
-          const rest = restOwner as Restaurant;
-          setRestaurant(rest);
-          setRestaurantId(rest.id);
-          setRole("owner");
-          sessionStorage.setItem("current_restaurant", JSON.stringify(rest));
-          sessionStorage.setItem("role", "owner");
-          return { role: "owner", restaurant: rest, restaurantId: rest.id };
+          if (restOwner) {
+            const rest = restOwner as Restaurant;
+            setRestaurant(rest);
+            setRestaurantId(rest.id);
+            setRole("owner");
+            sessionStorage.setItem("current_restaurant", JSON.stringify(rest));
+            sessionStorage.setItem("role", "owner");
+            return { role: "owner", restaurant: rest, restaurantId: rest.id };
+          }
+        } catch (oErr) {
+          console.warn("Owner fallback error:", oErr);
         }
       }
 
@@ -215,26 +327,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
-    // Safety timeout: Guaranteed to clear the "Authenticating..." spinner after 5 seconds
+    // Safety timeout: Guaranteed to clear the "Authenticating..." spinner after 8 seconds
     const safetyTimer = setTimeout(() => {
-      if (mounted && !isBootDoneRef.current) {
-        console.warn("Auth boot safety timeout reached - unblocking UI");
+      if (mounted) {
+        console.warn("Auth initialization safety timeout reached (8s) - unblocking UI");
         isBootDoneRef.current = true;
         setLoading(false);
       }
-    }, 5000);
+    }, 8000);
 
-    // Boot: get active session from sessionStorage via getSession()
-    supabase.auth
-      .getSession()
-      .then(async ({ data: { session: bootSession } }) => {
+    const initAuth = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.warn("Error getting initial session:", error);
+        }
+
+        const bootSession = data?.session;
         if (!mounted) return;
 
         if (bootSession?.user) {
           setSession(bootSession);
           setUser(bootSession.user);
 
-          // Guaranteed to keep loading=true while resolving user profile & permissions
           try {
             await loadUserProfile(bootSession.user);
           } catch (profileErr) {
@@ -251,20 +366,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setRestaurant(null);
           setPermissions([]);
         }
-
+      } catch (err) {
+        console.error("Unexpected error in initAuth:", err);
+      } finally {
         isBootDoneRef.current = true;
         if (mounted) {
           setLoading(false);
+          clearTimeout(safetyTimer);
         }
-      })
-      .catch((err) => {
-        console.warn("Failed to get initial auth session:", err);
-        isBootDoneRef.current = true;
-        if (mounted) setLoading(false);
-      })
-      .finally(() => {
-        clearTimeout(safetyTimer);
-      });
+      }
+    };
+
+    initAuth();
 
     // Subscribe to auth state changes (SIGN_IN, SIGN_OUT, TOKEN_REFRESHED)
     const {
@@ -290,8 +403,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else if (event === "SIGNED_IN" || event === "USER_UPDATED") {
         setSession(newSession);
         setUser(newSession.user);
-        if (isBootDoneRef.current) {
+        try {
           await loadUserProfile(newSession.user);
+        } finally {
+          isBootDoneRef.current = true;
+          setLoading(false);
         }
       } else if (event === "TOKEN_REFRESHED") {
         setSession(newSession);
@@ -306,7 +422,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [loadUserProfile]);
 
-  // Sign In with automatic cleanup of previous session
+  // Sign In with automatic cleanup of previous session and phone/email resolution
   const signIn = async (identifier: string, password: string) => {
     setLoading(true);
     try {
@@ -321,9 +437,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       let loginEmail = identifier.trim().toLowerCase();
-      // Handle phone login: normalize BD phone number and target synthetic staff email
-      const digits = identifier.replace(/\D/g, "");
-      if (digits.length >= 10 && (identifier.startsWith("+880") || identifier.startsWith("01") || identifier.startsWith("880") || digits.length === 11)) {
+
+      // Handle phone login: if identifier does NOT contain '@', resolve phone to staff email
+      if (!loginEmail.includes("@")) {
+        const digits = identifier.replace(/\D/g, "");
         let normPhone = digits;
         if (normPhone.startsWith("880") && normPhone.length === 13) {
           normPhone = `+${normPhone}`;
@@ -332,7 +449,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else if (normPhone.startsWith("1") && normPhone.length === 10) {
           normPhone = `+880${normPhone}`;
         }
-        loginEmail = `${normPhone.replace(/\D/g, "")}@staff.amarmenu.internal`;
+
+        // Check if there is an active staff record with this phone number
+        try {
+          const { data: staffByPhone } = await supabase
+            .from("restaurant_staff")
+            .select("email")
+            .eq("phone", normPhone)
+            .eq("is_active", true)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (staffByPhone?.email) {
+            loginEmail = staffByPhone.email.toLowerCase();
+          } else {
+            loginEmail = `${normPhone.replace(/\D/g, "")}@staff.amarmenu.internal`;
+          }
+        } catch {
+          loginEmail = `${normPhone.replace(/\D/g, "")}@staff.amarmenu.internal`;
+        }
       }
 
       const { data, error } = await supabase.auth.signInWithPassword({

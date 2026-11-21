@@ -10,7 +10,7 @@ interface MenuItem {
   id: string;
   name: string;
   name_bn?: string;
-  price: number;
+  base_price: number;
   is_available: boolean;
   category_id?: string;
 }
@@ -64,7 +64,7 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
         const [itemsRes, tablesRes] = await Promise.all([
           supabase
             .from("menu_items")
-            .select("id, name, name_bn, price, is_available, category_id")
+            .select("id, name, name_bn, base_price, is_available, category_id")
             .eq("restaurant_id", restaurantId)
             .is("deleted_at", null)
             .eq("is_available", true)
@@ -133,7 +133,7 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
     setCart((prev) => prev.filter((c) => c.item.id !== itemId));
   };
 
-  const subtotal = cart.reduce((sum, c) => sum + c.item.price * c.quantity, 0);
+  const subtotal = cart.reduce((sum, c) => sum + (c.item.base_price || 0) * c.quantity, 0);
   const tax = Math.round(subtotal * 0.05 * 100) / 100;
   const total = Math.round((subtotal + tax) * 100) / 100;
 
@@ -181,9 +181,9 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
           menu_item_id: c.item.id,
           name: c.item.name,
           quantity: c.quantity,
-          base_price: c.item.price,
-          client_price: c.item.price,
-          item_total: Number((c.item.price * c.quantity).toFixed(2)),
+          base_price: c.item.base_price,
+          client_price: c.item.base_price,
+          item_total: Number((c.item.base_price * c.quantity).toFixed(2)),
         })),
         subtotal: Number(subtotal.toFixed(2)),
         tax: Number(tax.toFixed(2)),
@@ -371,7 +371,7 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
                         <p className="text-[10px] text-slate-400 truncate">{item.name_bn}</p>
                       )}
                       <p className="text-xs font-extrabold text-orange-600">
-                        {formatCurrency(item.price)}
+                        {formatCurrency(item.base_price)}
                       </p>
                     </div>
                     <button
@@ -412,7 +412,7 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
                       <div className="min-w-0 pr-1">
                         <p className="font-bold text-slate-800 truncate">{c.item.name}</p>
                         <p className="text-[10px] text-slate-400">
-                          {formatCurrency(c.item.price)} × {c.quantity}
+                          {formatCurrency(c.item.base_price)} × {c.quantity}
                         </p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">

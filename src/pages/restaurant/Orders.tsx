@@ -72,7 +72,11 @@ const Orders: React.FC = () => {
   } = usePermissions();
   const previousOrdersRef = useRef<Order[]>([]);
 
-  const { restaurant: authRestaurant, restaurantId: authRestaurantId, profile, user } = useAuth();
+  const { restaurant: authRestaurant, restaurantId: authRestaurantId, profile, user, role: userRole } = useAuth();
+  const canMarkServed =
+    canConfirmOrder ||
+    canSettleBill ||
+    ["waiter", "owner", "manager", "cashier"].includes(userRole || "");
 
   useEffect(() => {
     let targetRestaurantId = authRestaurantId || authRestaurant?.id || "";
@@ -164,7 +168,13 @@ const Orders: React.FC = () => {
       if (statusFilter === "all") return true;
       if (statusFilter === "pending") return order.status === "pending";
       if (statusFilter === "confirmed") return order.status === "accepted";
-      if (statusFilter === "in_process") return order.status === "preparing" || order.status === "ready";
+      if (statusFilter === "in_process") {
+        return (
+          order.status === "preparing" ||
+          order.status === "ready" ||
+          order.status === "served"
+        );
+      }
       if (statusFilter === "completed") return order.status === "completed";
       if (statusFilter === "cancelled") {
         return order.status === "cancelled" || order.status === "rejected";
@@ -258,9 +268,16 @@ const Orders: React.FC = () => {
         );
       case "ready":
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
             <Bell className="w-3 h-3 mr-1" />
             Ready to Serve
+          </span>
+        );
+      case "served":
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-teal-100 text-teal-800 border border-teal-300">
+            <UtensilsCrossed className="w-3 h-3 mr-1" />
+            Served
           </span>
         );
       case "completed":
@@ -331,11 +348,11 @@ const Orders: React.FC = () => {
     },
     {
       id: "ready",
-      title: "Ready to Serve",
+      title: "Ready & Served",
       badgeColor: "bg-emerald-100 text-emerald-800 border-emerald-300",
       headerBg: "bg-emerald-600",
       borderTop: "border-t-4 border-emerald-600",
-      orders: orders.filter((o) => o.status === "ready" && matchesSearch(o, searchQuery)),
+      orders: orders.filter((o) => (o.status === "ready" || o.status === "served") && matchesSearch(o, searchQuery)),
     },
   ];
 
@@ -561,14 +578,35 @@ const Orders: React.FC = () => {
                             </button>
                           )}
 
-                          {col.id === "ready" && canSettleBill && (
-                            <button
-                              onClick={() => setSettleOrder(order)}
-                              className="w-full py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
-                            >
-                              <DollarSign className="w-3.5 h-3.5" />
-                              <span>Settle Bill & Free Table</span>
-                            </button>
+                          {col.id === "ready" && (
+                            <div className="space-y-1.5 w-full">
+                              {order.status === "ready" && canMarkServed && (
+                                <button
+                                  onClick={() => handleStatusUpdate(order.id, "served")}
+                                  className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
+                                >
+                                  <UtensilsCrossed className="w-3.5 h-3.5" />
+                                  <span>Mark as Served</span>
+                                </button>
+                              )}
+
+                              {order.status === "served" && (
+                                <div className="w-full py-1.5 bg-teal-50 text-teal-700 border border-teal-200 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1">
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                  <span>Served to Table</span>
+                                </div>
+                              )}
+
+                              {canSettleBill && (
+                                <button
+                                  onClick={() => setSettleOrder(order)}
+                                  className="w-full py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
+                                >
+                                  <DollarSign className="w-3.5 h-3.5" />
+                                  <span>Settle Bill & Free Table</span>
+                                </button>
+                              )}
+                            </div>
                           )}
 
                           {/* Secondary Utilities */}
@@ -618,7 +656,7 @@ const Orders: React.FC = () => {
               { id: "all", label: "All" },
               { id: "pending", label: "Pending", count: pendingCount },
               { id: "confirmed", label: "Confirmed", count: orders.filter((o) => o.status === "accepted").length },
-              { id: "in_process", label: "In Process", count: orders.filter((o) => o.status === "preparing" || o.status === "ready").length },
+              { id: "in_process", label: "In Process", count: orders.filter((o) => o.status === "preparing" || o.status === "ready" || o.status === "served").length },
               { id: "completed", label: "Completed", count: orders.filter((o) => o.status === "completed").length },
               { id: "cancelled", label: "Cancelled", count: orders.filter((o) => o.status === "cancelled" || o.status === "rejected").length },
             ].map((tab) => (
@@ -799,8 +837,18 @@ const Orders: React.FC = () => {
                                   Ready
                                 </button>
                               )}
+                              {order.status === "ready" && canMarkServed && (
+                                <button
+                                  onClick={() => handleStatusUpdate(order.id, "served")}
+                                  className="px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors flex items-center gap-1"
+                                >
+                                  <UtensilsCrossed className="w-3 h-3" />
+                                  Mark Served
+                                </button>
+                              )}
                               {canSettleBill &&
                                 (order.status === "ready" ||
+                                  order.status === "served" ||
                                   order.status === "accepted" ||
                                   order.status === "preparing") && (
                                   <button
@@ -1028,6 +1076,17 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 </span>
                 <span className="font-medium text-text">
                   {formatDateTime(order.ready_at)}
+                </span>
+              </div>
+            )}
+
+            {order.served_at && (
+              <div className="p-2 bg-white rounded-lg border border-border/50">
+                <span className="text-[10px] text-text-secondary block font-semibold">
+                  Served to Table
+                </span>
+                <span className="font-medium text-text">
+                  {formatDateTime(order.served_at)}
                 </span>
               </div>
             )}

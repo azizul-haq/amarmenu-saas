@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import type { User, Session } from "@supabase/supabase-js";
 import { supabase } from "../config/supabase";
 import type { Restaurant, RestaurantStaff, PlatformAdmin } from "../config/supabase";
@@ -24,16 +24,48 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Synchronously read stored session cache on mount so that initial render has profile & role
+const getStoredAuthState = () => {
+  if (typeof window === "undefined") {
+    return { profile: null, admin: null, role: null, restaurant: null, restaurantId: null };
+  }
+  try {
+    const rawUser = sessionStorage.getItem("user");
+    const rawAdmin = sessionStorage.getItem("admin");
+    const rawRest = sessionStorage.getItem("current_restaurant");
+    const parsedUser = rawUser ? JSON.parse(rawUser) : null;
+    const parsedAdmin = rawAdmin ? JSON.parse(rawAdmin) : null;
+    const parsedRest = rawRest ? JSON.parse(rawRest) : null;
+
+    let initialRole: UserRole = null;
+    if (parsedAdmin) initialRole = "super_admin";
+    else if (parsedUser?.role) initialRole = parsedUser.role as UserRole;
+
+    return {
+      profile: parsedUser as RestaurantStaff | null,
+      admin: parsedAdmin as PlatformAdmin | null,
+      role: initialRole,
+      restaurant: parsedRest as Restaurant | null,
+      restaurantId: (parsedRest?.id || parsedUser?.restaurant_id || null) as string | null,
+    };
+  } catch {
+    return { profile: null, admin: null, role: null, restaurant: null, restaurantId: null };
+  }
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const initialCache = getStoredAuthState();
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<RestaurantStaff | null>(null);
-  const [platformAdmin, setPlatformAdmin] = useState<PlatformAdmin | null>(null);
-  const [role, setRole] = useState<UserRole>(null);
-  const [restaurantId, setRestaurantId] = useState<string | null>(null);
-  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [profile, setProfile] = useState<RestaurantStaff | null>(initialCache.profile);
+  const [platformAdmin, setPlatformAdmin] = useState<PlatformAdmin | null>(initialCache.admin);
+  const [role, setRole] = useState<UserRole>(initialCache.role);
+  const [restaurantId, setRestaurantId] = useState<string | null>(initialCache.restaurantId);
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(initialCache.restaurant);
   const [permissions, setPermissions] = useState<string[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+
+  const isBootDoneRef = useRef(false);
 
   // Load user profile & role from the database
   const loadUserProfile = useCallback(async (currentUser: User): Promise<{
@@ -56,6 +88,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setProfile(null);
         setRestaurantId(null);
         setRestaurant(null);
+
+        sessionStorage.setItem("admin", JSON.stringify(adminData));
+        sessionStorage.setItem("role", "super_admin");
 
         // Super Admin gets all permissions dynamically from role_permissions
         const { data: allPerms } = await supabase
@@ -84,6 +119,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRestaurantId(staff.restaurant_id);
         setPlatformAdmin(null);
 
+        sessionStorage.setItem("user", JSON.stringify({ ...staff, restaurant_id: staff.restaurant_id }));
+        sessionStorage.setItem("role", staff.role);
+
         // Fetch dynamic permissions for this role from the database
         const { data: permData } = await supabase
           .from("role_permissions")
@@ -101,9 +139,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             loadedRestaurant = restData as Restaurant;
             setRestaurant(loadedRestaurant);
             sessionStorage.setItem("current_restaurant", JSON.stringify(loadedRestaurant));
+          } else {
+            // Fallback: restore from cache if network delay
+            const cachedRest = sessionStorage.getItem("current_restaurant");
+            if (cachedRest) {
+              try {
+                loadedRestaurant = JSON.parse(cachedRest);
+                setRestaurant(loadedRestaurant);
+              } catch {
+                // ignore
+              }
+            }
           }
         }
-        sessionStorage.setItem("user", JSON.stringify({ ...staff, restaurant_id: staff.restaurant_id }));
+
         return {
           role: staff.role as UserRole,
           restaurant: loadedRestaurant,
@@ -111,13 +160,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       }
 
+      // 3. Fallback: Check if user owns a restaurant directly
+      if (currentUser.email) {
+        const { data: restOwner } = await supabase
+          .from("restaurants")
+          .select("*")
+          .eq("email", currentUser.email)
+          .maybeSingle();
+
+        if (restOwner) {
+          const rest = restOwner as Restaurant;
+          setRestaurant(rest);
+          setRestaurantId(rest.id);
+          setRole("owner");
+          sessionStorage.setItem("current_restaurant", JSON.stringify(rest));
+          sessionStorage.setItem("role", "owner");
+          return { role: "owner", restaurant: rest, restaurantId: rest.id };
+        }
+      }
+
       // No role found
       sessionStorage.removeItem("user");
       sessionStorage.removeItem("admin");
       sessionStorage.removeItem("current_restaurant");
-      localStorage.removeItem("user");
-      localStorage.removeItem("admin");
-      localStorage.removeItem("current_restaurant");
+      sessionStorage.removeItem("role");
       setRole(null);
       setProfile(null);
       setPlatformAdmin(null);
@@ -127,7 +193,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { role: null, restaurant: null, restaurantId: null };
     } catch (err) {
       console.error("Error loading user profile:", err);
-      setPermissions([]);
       return { role: null, restaurant: null, restaurantId: null };
     }
   }, []);
@@ -146,86 +211,100 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user, loadUserProfile]);
 
-  // 1. Initial Session & Auth State Listener (SYNCHRONOUS ONLY to avoid Supabase JS v2 deadlock)
+  // Initial Session Boot & Auth State Listener
   useEffect(() => {
     let mounted = true;
 
-    // Get initial session on boot
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mounted) return;
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (!session?.user) {
+    // Safety timeout: Guaranteed to clear the "Authenticating..." spinner after 5 seconds
+    const safetyTimer = setTimeout(() => {
+      if (mounted && !isBootDoneRef.current) {
+        console.warn("Auth boot safety timeout reached - unblocking UI");
+        isBootDoneRef.current = true;
         setLoading(false);
       }
-    }).catch((err) => {
-      console.warn("Failed to get initial auth session:", err);
-      if (mounted) setLoading(false);
-    });
+    }, 5000);
 
-    // Subscribe to auth state changes
-    // CRITICAL FIX: DO NOT AWAIT DATABASE QUERIES SYNCHRONOUSLY INSIDE onAuthStateChange.
-    // That causes a well-known internal mutex deadlock in Supabase JS v2!
+    // Boot: get active session from sessionStorage via getSession()
+    supabase.auth
+      .getSession()
+      .then(async ({ data: { session: bootSession } }) => {
+        if (!mounted) return;
+
+        if (bootSession?.user) {
+          setSession(bootSession);
+          setUser(bootSession.user);
+
+          // Guaranteed to keep loading=true while resolving user profile & permissions
+          try {
+            await loadUserProfile(bootSession.user);
+          } catch (profileErr) {
+            console.error("Failed to load user profile on boot:", profileErr);
+          }
+        } else {
+          // No active session found
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          setPlatformAdmin(null);
+          setRole(null);
+          setRestaurantId(null);
+          setRestaurant(null);
+          setPermissions([]);
+        }
+
+        isBootDoneRef.current = true;
+        if (mounted) {
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to get initial auth session:", err);
+        isBootDoneRef.current = true;
+        if (mounted) setLoading(false);
+      })
+      .finally(() => {
+        clearTimeout(safetyTimer);
+      });
+
+    // Subscribe to auth state changes (SIGN_IN, SIGN_OUT, TOKEN_REFRESHED)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!mounted) return;
-      setSession(newSession);
-      setUser(newSession?.user ?? null);
 
-      if (!newSession?.user) {
-        // Immediate clean wipe on sign out
+      if (event === "SIGNED_OUT" || !newSession?.user) {
+        setSession(null);
+        setUser(null);
         setProfile(null);
         setPlatformAdmin(null);
         setRole(null);
         setRestaurantId(null);
         setRestaurant(null);
         setPermissions([]);
+        sessionStorage.removeItem("user");
+        sessionStorage.removeItem("admin");
+        sessionStorage.removeItem("current_restaurant");
+        sessionStorage.removeItem("role");
+        isBootDoneRef.current = true;
         setLoading(false);
+      } else if (event === "SIGNED_IN" || event === "USER_UPDATED") {
+        setSession(newSession);
+        setUser(newSession.user);
+        if (isBootDoneRef.current) {
+          await loadUserProfile(newSession.user);
+        }
+      } else if (event === "TOKEN_REFRESHED") {
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
       }
     });
 
     return () => {
       mounted = false;
+      clearTimeout(safetyTimer);
       subscription.unsubscribe();
     };
-  }, []);
-
-  // 2. Separate Effect to Load Profile: Triggered when user?.id changes (Lock-Free)
-  useEffect(() => {
-    let isMounted = true;
-
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-
-    // Hard safety timeout: Guaranteed to clear the "Authenticating..." spinner after 4 seconds
-    const safetyTimer = setTimeout(() => {
-      if (isMounted) {
-        console.warn("Auth load safety timeout reached - unblocking UI");
-        setLoading(false);
-      }
-    }, 4000);
-
-    loadUserProfile(user)
-      .catch((err) => {
-        console.error("loadUserProfile error:", err);
-      })
-      .finally(() => {
-        clearTimeout(safetyTimer);
-        if (isMounted) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-      clearTimeout(safetyTimer);
-    };
-  }, [user?.id, loadUserProfile]);
+  }, [loadUserProfile]);
 
   // Sign In with automatic cleanup of previous session
   const signIn = async (identifier: string, password: string) => {
@@ -290,9 +369,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sessionStorage.removeItem("user");
       sessionStorage.removeItem("admin");
       sessionStorage.removeItem("current_restaurant");
+      sessionStorage.removeItem("role");
       localStorage.removeItem("user");
       localStorage.removeItem("admin");
       localStorage.removeItem("current_restaurant");
+      localStorage.removeItem("role");
       setUser(null);
       setSession(null);
       setProfile(null);

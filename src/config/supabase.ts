@@ -198,6 +198,7 @@ export interface Order {
     | "accepted"
     | "preparing"
     | "ready"
+    | "served"
     | "completed"
     | "cancelled"
     | "rejected";
@@ -215,6 +216,7 @@ export interface Order {
   accepted_at?: string;
   preparing_at?: string;
   ready_at?: string;
+  served_at?: string;
   completed_at?: string;
   cancelled_at?: string;
   created_at: string;

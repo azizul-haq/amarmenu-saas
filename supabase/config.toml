@@ -1,10 +1,13 @@
 # Supabase Local & Staging Functions Configuration
 
 [functions.invite-staff]
-verify_jwt = true
+verify_jwt = false
+
+[functions.manage-staff]
+verify_jwt = false
 
 [functions.approve-registration]
-verify_jwt = true
+verify_jwt = false
 
 [functions.simulate-payment]
 verify_jwt = false

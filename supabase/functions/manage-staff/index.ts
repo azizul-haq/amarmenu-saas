@@ -164,14 +164,14 @@ serve(async (req: Request) => {
     }
 
     const body: InviteStaffPayload = await req.json().catch(() => ({}));
-    const action = body.action || "invite";
+    const action = body.action || "create";
 
     let targetRestaurantId: string;
     let actorRole: string;
     let actorName: string;
 
     if (isSuperAdmin) {
-      targetRestaurantId = body.restaurant_id || callerStaff?.restaurant_id;
+      targetRestaurantId = (body.restaurant_id || callerStaff?.restaurant_id) as string;
       if (!targetRestaurantId) {
         return new Response(
           JSON.stringify({ error: "Missing restaurant_id for Super Admin action" }),
@@ -232,7 +232,6 @@ serve(async (req: Request) => {
           {
             password: tempPassword,
             app_metadata: {
-              must_change_password: true,
               restaurant_id: targetRestaurantId,
             },
           }
@@ -490,7 +489,7 @@ serve(async (req: Request) => {
 
       const { data: targetStaff, error: targetError } = await supabaseAdmin
         .from("restaurant_staff")
-        .select("id, restaurant_id, role, full_name, phone, email, is_active")
+        .select("id, restaurant_id, auth_user_id, role, full_name, phone, email, is_active")
         .eq("id", body.staff_id)
         .eq("restaurant_id", targetRestaurantId)
         .maybeSingle();
@@ -520,6 +519,16 @@ serve(async (req: Request) => {
           );
         }
         updateFields.role = body.role;
+
+        // Sync role to app_metadata if auth user exists
+        if (targetStaff.auth_user_id) {
+          await supabaseAdmin.auth.admin.updateUserById(targetStaff.auth_user_id, {
+            app_metadata: {
+              restaurant_id: targetRestaurantId,
+              role: body.role,
+            },
+          });
+        }
       }
 
       if (body.phone) {
@@ -590,7 +599,7 @@ serve(async (req: Request) => {
     }
 
     // =========================================================================
-    // ACTION: Create / Invite Staff
+    // ACTION: Create Staff (Direct Email + Password for ALL roles: manager, cashier, waiter, kitchen)
     // =========================================================================
     const { full_name, phone, role, email, password } = body;
 
@@ -611,6 +620,28 @@ serve(async (req: Request) => {
     }
 
     const staffEmail = email && email.trim() ? email.trim().toLowerCase() : null;
+    if (!staffEmail) {
+      return new Response(
+        JSON.stringify({ error: "Email address is required for staff account creation." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(staffEmail)) {
+      return new Response(
+        JSON.stringify({ error: "Please enter a valid email address." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!password || password.trim().length < 6) {
+      return new Response(
+        JSON.stringify({ error: "Password must be at least 6 characters long." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const userPassword = password.trim();
+
     let cleanPhone: string | null = null;
     if (phone && phone.trim()) {
       cleanPhone = normalizeBDPhone(phone.trim());
@@ -622,52 +653,24 @@ serve(async (req: Request) => {
       }
     }
 
-    if (!staffEmail && !cleanPhone) {
+    // 1. Check duplicate email in restaurant_staff
+    const { data: existingStaffEmail } = await supabaseAdmin
+      .from("restaurant_staff")
+      .select("id")
+      .eq("email", staffEmail)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (existingStaffEmail) {
       return new Response(
-        JSON.stringify({ error: "Either Email or Phone number is required for staff account." }),
+        JSON.stringify({
+          error: "A user with this email already exists.",
+        }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 1. Check duplicate phone in restaurant_staff
-    if (cleanPhone) {
-      const { data: existingStaffPhone } = await supabaseAdmin
-        .from("restaurant_staff")
-        .select("id")
-        .eq("phone", cleanPhone)
-        .eq("is_active", true)
-        .maybeSingle();
-
-      if (existingStaffPhone) {
-        return new Response(
-          JSON.stringify({
-            error: "This phone number is already registered to an active staff member.",
-          }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    }
-
-    // 2. Check duplicate email in restaurant_staff
-    if (staffEmail) {
-      const { data: existingStaffEmail } = await supabaseAdmin
-        .from("restaurant_staff")
-        .select("id")
-        .eq("email", staffEmail)
-        .eq("is_active", true)
-        .maybeSingle();
-
-      if (existingStaffEmail) {
-        return new Response(
-          JSON.stringify({
-            error: "A user with this email already exists.",
-          }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    }
-
-    // 3. Plan Staff Limit Check
+    // 2. Plan Staff Limit Check
     const { data: restaurantRow } = await supabaseAdmin
       .from("restaurants")
       .select("subscription_plan")
@@ -699,22 +702,20 @@ serve(async (req: Request) => {
       }
     }
 
-    // 4. Setup credentials
-    const hasCustomPassword = !!(password && password.trim().length >= 6);
-    const userPassword = hasCustomPassword ? password!.trim() : generateSecureTempPassword();
-    const finalEmail = staffEmail || `${cleanPhone!.replace(/\D/g, "")}@staff.amarmenu.internal`;
-
-    // 5. Create Auth user via Admin API (Leaves owner's active session completely intact)
+    // 3. Create Auth user via Admin API (Password set directly, email confirmed)
+    // NOTE: We do not pass phone to auth.admin.createUser to avoid Supabase auth phone uniqueness collisions.
     const { data: authCreated, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
-      email: finalEmail,
-      phone: cleanPhone || undefined,
+      email: staffEmail,
       password: userPassword,
       email_confirm: true,
-      phone_confirm: !!cleanPhone,
+      user_metadata: {
+        full_name: full_name.trim(),
+        phone: cleanPhone || undefined,
+      },
       app_metadata: {
-        must_change_password: !hasCustomPassword,
         restaurant_id: targetRestaurantId,
         role: role,
+        must_change_password: false,
       },
     });
 
@@ -724,7 +725,7 @@ serve(async (req: Request) => {
       return new Response(
         JSON.stringify({
           error: isDuplicate
-            ? (staffEmail ? "A user with this email already exists." : "A user with this phone number already exists.")
+            ? "A user with this email already exists."
             : `Auth creation failed: ${rawMsg}`,
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -733,7 +734,7 @@ serve(async (req: Request) => {
 
     const newAuthUserId = authCreated.user.id;
 
-    // 6. Insert into restaurant_staff
+    // 4. Insert into restaurant_staff
     const { data: newStaff, error: insertStaffError } = await supabaseAdmin
       .from("restaurant_staff")
       .insert({
@@ -757,17 +758,17 @@ serve(async (req: Request) => {
       );
     }
 
-    // 7. Write audit log
+    // 5. Write audit log
     try {
       await supabaseAdmin.from("audit_logs").insert({
         restaurant_id: targetRestaurantId,
         actor_id: callerUser.id,
         actor_role: actorRole,
         actor_name: actorName,
-        action: hasCustomPassword ? "staff_created" : "staff_invited",
+        action: "staff_created",
         entity_type: "restaurant_staff",
         entity_id: newStaff.id,
-        reason: hasCustomPassword ? "Staff created directly with password" : "Staff invited with temp password",
+        reason: "Staff created directly with email and password",
         new_values: {
           staff_id: newStaff.id,
           full_name: newStaff.full_name,
@@ -783,11 +784,8 @@ serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         success: true,
-        message: hasCustomPassword
-          ? `Staff member ${newStaff.full_name} created successfully.`
-          : "Staff member created successfully. Provide the temporary password to the employee.",
+        message: `Staff member ${newStaff.full_name} created successfully.`,
         staff: newStaff,
-        tempPassword: hasCustomPassword ? undefined : userPassword,
       }),
       { status: 201, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

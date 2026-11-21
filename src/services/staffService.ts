@@ -34,26 +34,33 @@ export async function invokeStaffAction(payload: StaffActionPayload): Promise<an
   });
 
   if (fnError) {
-    let unwrappedMessage = fnError.message;
+    let unwrappedMessage = "";
 
     // Supabase FunctionsHttpError attaches the fetch Response object on `context`
     if (fnError.context) {
       try {
-        if (typeof fnError.context.json === "function") {
-          const bodyJson = await fnError.context.json();
-          if (bodyJson?.error) {
-            unwrappedMessage = bodyJson.error;
-          } else if (bodyJson?.message) {
-            unwrappedMessage = bodyJson.message;
+        const resp = typeof fnError.context.clone === "function" ? fnError.context.clone() : fnError.context;
+        // Try reading JSON first
+        try {
+          const bodyJson = await resp.json();
+          if (bodyJson && typeof bodyJson === "object") {
+            unwrappedMessage = bodyJson.error || bodyJson.message || bodyJson.msg || "";
           }
-        } else if (typeof fnError.context.text === "function") {
-          const text = await fnError.context.text();
+        } catch {
+          // If JSON parse fails, try reading text
           try {
-            const bodyJson = JSON.parse(text);
-            if (bodyJson?.error) unwrappedMessage = bodyJson.error;
-            else if (bodyJson?.message) unwrappedMessage = bodyJson.message;
+            const resp2 = typeof fnError.context.clone === "function" ? fnError.context.clone() : fnError.context;
+            const text = await resp2.text();
+            if (text) {
+              try {
+                const parsed = JSON.parse(text);
+                unwrappedMessage = parsed.error || parsed.message || parsed.msg || text;
+              } catch {
+                unwrappedMessage = text;
+              }
+            }
           } catch {
-            if (text) unwrappedMessage = text;
+            // ignore
           }
         }
       } catch {
@@ -61,8 +68,11 @@ export async function invokeStaffAction(payload: StaffActionPayload): Promise<an
       }
     }
 
-    if (unwrappedMessage === "Edge Function returned a non-2xx status code") {
-      unwrappedMessage = "Operation failed on server. Please check your input and try again.";
+    if (!unwrappedMessage || unwrappedMessage === "Edge Function returned a non-2xx status code") {
+      unwrappedMessage =
+        fnError.message && fnError.message !== "Edge Function returned a non-2xx status code"
+          ? fnError.message
+          : "Failed to process staff operation. Please check your inputs and try again.";
     }
 
     throw new Error(unwrappedMessage);

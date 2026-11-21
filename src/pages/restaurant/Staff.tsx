@@ -116,31 +116,20 @@ export const StaffPage: React.FC = () => {
 
         setSuccess(`Updated ${fullName.trim()} successfully.`);
       } else {
-        // Invite/Create new staff via Edge Function
-        const data = await invokeStaffAction({
-          action: "invite",
+        // Create new staff directly with email + password via Edge Function
+        await invokeStaffAction({
+          action: "create",
           restaurant_id: restaurant.id,
           full_name: fullName.trim(),
-          phone: phone.trim(),
-          email: email.trim() || undefined,
-          password: password.trim() || undefined,
+          email: email.trim().toLowerCase(),
+          password: password.trim(),
+          phone: phone.trim() || undefined,
           role: staffRole,
         });
 
-        if (password.trim()) {
-          setSuccess(`Staff account created for ${fullName.trim()} (${staffRole}). They can now log in immediately.`);
-        } else {
-          setSuccess(`Invited ${fullName.trim()} as ${staffRole}.`);
-          // Display temporary password to owner
-          if (data?.tempPassword) {
-            setTempPasswordModal({
-              isOpen: true,
-              name: fullName.trim(),
-              phone: phone.trim(),
-              tempPassword: data.tempPassword,
-            });
-          }
-        }
+        setSuccess(
+          `Staff account created successfully for ${fullName.trim()} (${staffRole}). They can now log in immediately with their email and password.`
+        );
       }
 
       setIsModalOpen(false);
@@ -473,7 +462,7 @@ export const StaffPage: React.FC = () => {
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={editingStaff ? `Edit Role: ${editingStaff.full_name}` : "Invite Restaurant Staff Member"}
+        title={editingStaff ? `Edit Staff Member: ${editingStaff.full_name}` : "Add New Staff Member"}
       >
         <form onSubmit={handleSaveStaff} className="space-y-4">
           <Input
@@ -486,12 +475,13 @@ export const StaffPage: React.FC = () => {
 
           {!editingStaff && (
             <Input
-              label="Email Address"
+              label="Email Address (Login Username)"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="e.g. rahim@restaurant.com"
-              helperText="Staff can log in with this email or their phone number"
+              helperText="Staff member will use this email address to log in to AmarMenu"
+              required
             />
           )}
 
@@ -502,17 +492,19 @@ export const StaffPage: React.FC = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Min. 6 characters (e.g. staff123)"
-              helperText="Owner sets the password directly so staff can log in immediately (leave blank to auto-generate temporary password)"
+              helperText="Owner sets the password directly so staff can log in immediately"
+              required
+              minLength={6}
             />
           )}
 
           <Input
-            label="Phone Number"
+            label="Phone Number (Optional)"
+            type="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="e.g. 017XXXXXXXX"
-            helperText="11-digit Bangladeshi mobile number (e.g. 01712345678)"
-            required={!editingStaff}
+            helperText="11-digit Bangladeshi mobile number for internal contact"
           />
 
           <Select

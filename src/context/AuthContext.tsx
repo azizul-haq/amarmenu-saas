@@ -24,18 +24,17 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Safely parse JSON from storage; purges corrupted items on error
+// Safely parse JSON strictly from sessionStorage (tab-isolated); purges corrupted items on error
 function safeStorageGet<T>(key: string): T | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(key) || localStorage.getItem(key);
+    const raw = sessionStorage.getItem(key);
     if (!raw || raw === "undefined" || raw === "null") return null;
     return JSON.parse(raw) as T;
   } catch (err) {
     console.warn(`Purging corrupted storage item for "${key}":`, err);
     try {
       sessionStorage.removeItem(key);
-      localStorage.removeItem(key);
     } catch {
       // ignore
     }

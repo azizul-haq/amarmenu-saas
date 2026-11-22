@@ -37,6 +37,7 @@ import { getTenantSubscriptionDetails } from "../../services/subscriptionService
 import type { TenantSubscriptionRecord } from "../../schemas/subscriptionSchema";
 import { SubmitPaymentModal } from "../../components/restaurant/SubmitPaymentModal";
 import { RoleBasedSearchBar } from "../../components/common/RoleBasedSearchBar";
+import { RoleBadge, RoleWatermark } from "../../components/restaurant/RoleVisualIdentity";
 import RestaurantHome from "./RestaurantHome";
 import Orders from "./Orders";
 import KitchenKDS from "./KitchenKDS";
@@ -463,16 +464,17 @@ const RestaurantDashboard: React.FC = () => {
         {/* Modern Sticky Top Utility Bar */}
         <header className="sticky top-0 z-30 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between shadow-xs">
           {/* Mobile hamburger */}
-          <div className="flex items-center space-x-3 lg:hidden">
+          <div className="flex items-center space-x-2 lg:hidden">
             <button
               onClick={() => setMobileMenuOpen(true)}
               className="p-2 rounded-lg text-slate-600 hover:bg-slate-100"
             >
               <MenuIcon className="w-6 h-6" />
             </button>
-            <span className="font-bold text-slate-900 truncate">
+            <span className="font-bold text-slate-900 truncate max-w-[120px] sm:max-w-xs">
               {restaurant?.name || "AmarMenu"}
             </span>
+            <RoleBadge role={role} compact />
           </div>
 
           {/* Desktop Left Breadcrumb / Context */}
@@ -481,10 +483,7 @@ const RestaurantDashboard: React.FC = () => {
               {restaurant?.name || "Restaurant Hub"}
             </span>
             <span className="text-slate-300">•</span>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
-              Kitchen Live
-            </span>
+            <RoleBadge role={role} />
           </div>
 
           {/* Central Role-based Search Bar */}
@@ -553,8 +552,11 @@ const RestaurantDashboard: React.FC = () => {
           </div>
         )}
 
+        {/* Role-Specific Background Watermark Illustration */}
+        <RoleWatermark role={role} />
+
         {/* Dynamic Route Content Canvas */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        <main className="relative z-10 flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
           {isSoftLocked && location.pathname !== "/restaurant/subscription" ? (
             <div className="max-w-xl mx-auto my-12 bg-white rounded-2xl border border-rose-200 p-8 shadow-sm text-center">
               <div className="w-16 h-16 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-center mx-auto mb-4 text-rose-600 shadow-xs">

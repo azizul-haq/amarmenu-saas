@@ -1,10 +1,26 @@
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config";
 
-// Initialize Supabase client
+// Ensure each browser tab has a unique session storage key so multi-tab / incognito sessions never overwrite each other
+const getTabStorageKey = (): string => {
+  if (typeof window === "undefined") return "amarmenu_auth_default";
+  try {
+    let tabId = window.sessionStorage.getItem("amarmenu_tab_id");
+    if (!tabId) {
+      tabId = "tab_" + Math.random().toString(36).substring(2, 10);
+      window.sessionStorage.setItem("amarmenu_tab_id", tabId);
+    }
+    return `amarmenu_auth_${tabId}`;
+  } catch {
+    return "amarmenu_auth_fallback";
+  }
+};
+
+// Initialize Supabase client strictly scoped to window.sessionStorage with per-tab storageKey
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: typeof window !== "undefined" ? window.sessionStorage : undefined,
+    storageKey: getTabStorageKey(),
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,

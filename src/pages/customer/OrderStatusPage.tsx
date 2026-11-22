@@ -141,6 +141,7 @@ const OrderStatusPage: React.FC = () => {
       case "preparing":
         return 1;
       case "ready":
+      case "served":
         return 2;
       case "completed":
         return 3;
@@ -334,6 +335,18 @@ const OrderStatusPage: React.FC = () => {
                   : lang === "bn"
                   ? "ওয়েটার খাবার টেবিলে নিয়ে আসছেন।"
                   : "Waiter is bringing it to your table."}
+              </div>
+            )}
+
+            {order.status === "served" && (
+              <div className="mt-8 bg-teal-50 border border-teal-200 rounded-xl p-3.5 text-center text-xs text-teal-800">
+                🍽️{" "}
+                <span className="font-bold">
+                  {lang === "bn" ? "খাবার পরিবেশন করা হয়েছে!" : "Your food has been served!"}
+                </span>{" "}
+                {lang === "bn"
+                  ? "উপভোগ করুন আপনার খাবার! বিল পরিশোধ করতে ওয়েটারকে বলুন বা কাউন্টারে যোগাযোগ করুন।"
+                  : "Enjoy your meal! Please settle your bill at the counter or with your waiter."}
               </div>
             )}
           </div>

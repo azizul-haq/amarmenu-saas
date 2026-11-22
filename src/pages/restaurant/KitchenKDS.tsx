@@ -581,7 +581,7 @@ const KitchenKDS: React.FC = () => {
                       size="sm"
                       fullWidth
                       className="bg-green-600 hover:bg-green-700 text-white font-bold text-xs"
-                      onClick={() => handleStatusChange(order.id, "completed")}
+                      onClick={() => handleStatusChange(order.id, "served")}
                     >
                       ✓ Mark Served
                     </Button>

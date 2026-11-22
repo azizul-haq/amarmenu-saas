@@ -37,7 +37,7 @@ import { getTenantSubscriptionDetails } from "../../services/subscriptionService
 import type { TenantSubscriptionRecord } from "../../schemas/subscriptionSchema";
 import { SubmitPaymentModal } from "../../components/restaurant/SubmitPaymentModal";
 import { RoleBasedSearchBar } from "../../components/common/RoleBasedSearchBar";
-import { RoleBadge, RoleWatermark } from "../../components/restaurant/RoleVisualIdentity";
+import { RoleBadge, RoleWatermark, getRoleConfig } from "../../components/restaurant/RoleVisualIdentity";
 import RestaurantHome from "./RestaurantHome";
 import Orders from "./Orders";
 import KitchenKDS from "./KitchenKDS";
@@ -263,6 +263,7 @@ const RestaurantDashboard: React.FC = () => {
   ];
 
   const normRole = (role || "").toLowerCase().trim();
+  const roleConfig = getRoleConfig(role);
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
@@ -296,7 +297,7 @@ const RestaurantDashboard: React.FC = () => {
     .filter((group) => group.items.length > 0);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className={`min-h-screen ${roleConfig.pageBgGradient} flex transition-colors duration-500`}>
       {/* Mobile Drawer Overlay */}
       {mobileMenuOpen && (
         <div
@@ -319,7 +320,7 @@ const RestaurantDashboard: React.FC = () => {
             to="/restaurant"
             className="flex items-center space-x-3 overflow-hidden"
           >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-900/30 flex-shrink-0">
+            <div className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${roleConfig.brandBadgeGrad} flex items-center justify-center flex-shrink-0 transition-all duration-300`}>
               <StoreIcon className="w-5 h-5 text-white" />
             </div>
             {!isCollapsed && (
@@ -378,7 +379,7 @@ const RestaurantDashboard: React.FC = () => {
                     onClick={() => setMobileMenuOpen(false)}
                     className={`relative flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-all group ${
                       isActive
-                        ? "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-md shadow-orange-950/40"
+                        ? roleConfig.navActiveGrad
                         : "text-slate-300 hover:text-white hover:bg-slate-800/80"
                     } ${isCollapsed ? "justify-center" : "justify-between"}`}
                     title={isCollapsed ? item.label : undefined}
@@ -477,8 +478,8 @@ const RestaurantDashboard: React.FC = () => {
           isCollapsed ? "lg:pl-20" : "lg:pl-64"
         }`}
       >
-        {/* Modern Sticky Top Utility Bar */}
-        <header className="sticky top-0 z-30 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between shadow-xs">
+        {/* Modern Sticky Top Utility Bar with Glassmorphism & Role-Colored Top Border */}
+        <header className={`sticky top-0 z-30 h-16 bg-white/70 backdrop-blur-md border-b border-white/60 shadow-xs px-4 sm:px-6 flex items-center justify-between transition-all duration-300 ${roleConfig.topBorderAccent}`}>
           {/* Mobile hamburger */}
           <div className="flex items-center space-x-2 lg:hidden">
             <button

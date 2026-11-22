@@ -322,7 +322,7 @@ const RestaurantHome: React.FC = () => {
         {statCards.map((card, idx) => (
           <div
             key={idx}
-            className={`bg-white rounded-2xl border ${card.borderColor} p-5 shadow-xs transition-all hover:shadow-md ${
+            className={`bg-white/75 backdrop-blur-md rounded-2xl border ${card.borderColor} p-5 shadow-xs transition-all hover:shadow-md hover:bg-white/90 ${
               card.pulse ? "ring-2 ring-amber-400/50" : ""
             }`}
           >
@@ -351,7 +351,7 @@ const RestaurantHome: React.FC = () => {
       {/* Charts Section: 7-Day Revenue Area + Payment Split Donut */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Revenue Volume Trend Chart (2 columns) */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+        <div className="lg:col-span-2 bg-white/75 backdrop-blur-md rounded-2xl border border-white/60 p-6 shadow-xs">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
@@ -416,7 +416,7 @@ const RestaurantHome: React.FC = () => {
         </div>
 
         {/* Payment Methods Split Donut (1 column) */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between">
+        <div className="bg-white/75 backdrop-blur-md rounded-2xl border border-white/60 p-6 shadow-xs flex flex-col justify-between">
           <div>
             <h2 className="text-base font-bold text-slate-900">
               Payment Method Split
@@ -470,7 +470,7 @@ const RestaurantHome: React.FC = () => {
       </div>
 
       {/* Operational Feed: Recent Orders */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+      <div className="bg-white/75 backdrop-blur-md rounded-2xl border border-white/60 p-6 shadow-xs">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-base font-bold text-slate-900">

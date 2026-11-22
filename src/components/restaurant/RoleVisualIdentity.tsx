@@ -22,6 +22,10 @@ export interface RoleConfig {
   dotColor: string;
   watermarkColor: string;
   gradientWash: string;
+  pageBgGradient: string;
+  brandBadgeGrad: string;
+  navActiveGrad: string;
+  topBorderAccent: string;
 }
 
 export const ROLE_CONFIGS: Record<string, RoleConfig> = {
@@ -37,6 +41,10 @@ export const ROLE_CONFIGS: Record<string, RoleConfig> = {
     dotColor: "bg-purple-600",
     watermarkColor: "text-purple-600",
     gradientWash: "bg-gradient-to-tl from-purple-500/25 via-indigo-500/10 to-transparent",
+    pageBgGradient: "bg-gradient-to-br from-purple-50/90 via-indigo-50/50 to-white",
+    brandBadgeGrad: "from-purple-600 to-indigo-600 shadow-purple-900/30",
+    navActiveGrad: "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-950/40",
+    topBorderAccent: "border-t-4 border-t-purple-600",
   },
   manager: {
     role: "manager",
@@ -50,6 +58,10 @@ export const ROLE_CONFIGS: Record<string, RoleConfig> = {
     dotColor: "bg-blue-600",
     watermarkColor: "text-blue-600",
     gradientWash: "bg-gradient-to-tl from-blue-500/25 via-sky-500/10 to-transparent",
+    pageBgGradient: "bg-gradient-to-br from-blue-50/90 via-sky-50/50 to-white",
+    brandBadgeGrad: "from-blue-600 to-sky-600 shadow-blue-900/30",
+    navActiveGrad: "bg-gradient-to-r from-blue-600 to-sky-600 text-white shadow-md shadow-blue-950/40",
+    topBorderAccent: "border-t-4 border-t-blue-600",
   },
   cashier: {
     role: "cashier",
@@ -63,6 +75,10 @@ export const ROLE_CONFIGS: Record<string, RoleConfig> = {
     dotColor: "bg-emerald-600",
     watermarkColor: "text-emerald-600",
     gradientWash: "bg-gradient-to-tl from-emerald-500/25 via-teal-500/10 to-transparent",
+    pageBgGradient: "bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-white",
+    brandBadgeGrad: "from-emerald-600 to-teal-600 shadow-emerald-900/30",
+    navActiveGrad: "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-950/40",
+    topBorderAccent: "border-t-4 border-t-emerald-600",
   },
   kitchen: {
     role: "kitchen",
@@ -76,6 +92,10 @@ export const ROLE_CONFIGS: Record<string, RoleConfig> = {
     dotColor: "bg-orange-600",
     watermarkColor: "text-orange-600",
     gradientWash: "bg-gradient-to-tl from-orange-500/25 via-amber-500/10 to-transparent",
+    pageBgGradient: "bg-gradient-to-br from-orange-50/90 via-amber-50/50 to-white",
+    brandBadgeGrad: "from-orange-600 to-amber-500 shadow-orange-900/30",
+    navActiveGrad: "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-md shadow-orange-950/40",
+    topBorderAccent: "border-t-4 border-t-orange-600",
   },
   waiter: {
     role: "waiter",
@@ -89,6 +109,10 @@ export const ROLE_CONFIGS: Record<string, RoleConfig> = {
     dotColor: "bg-teal-600",
     watermarkColor: "text-teal-600",
     gradientWash: "bg-gradient-to-tl from-teal-500/25 via-cyan-500/10 to-transparent",
+    pageBgGradient: "bg-gradient-to-br from-teal-50/90 via-cyan-50/50 to-white",
+    brandBadgeGrad: "from-teal-600 to-cyan-600 shadow-teal-900/30",
+    navActiveGrad: "bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-md shadow-teal-950/40",
+    topBorderAccent: "border-t-4 border-t-teal-600",
   },
   super_admin: {
     role: "super_admin",
@@ -102,6 +126,10 @@ export const ROLE_CONFIGS: Record<string, RoleConfig> = {
     dotColor: "bg-rose-600",
     watermarkColor: "text-rose-600",
     gradientWash: "bg-gradient-to-tl from-rose-500/25 via-red-500/10 to-transparent",
+    pageBgGradient: "bg-gradient-to-br from-rose-50/90 via-pink-50/50 to-white",
+    brandBadgeGrad: "from-rose-600 to-pink-600 shadow-rose-900/30",
+    navActiveGrad: "bg-gradient-to-r from-rose-600 to-pink-600 text-white shadow-md shadow-rose-950/40",
+    topBorderAccent: "border-t-4 border-t-rose-600",
   },
 };
 
@@ -117,6 +145,10 @@ const DEFAULT_CONFIG: RoleConfig = {
   dotColor: "bg-slate-600",
   watermarkColor: "text-slate-500",
   gradientWash: "bg-gradient-to-tl from-slate-500/20 to-transparent",
+  pageBgGradient: "bg-gradient-to-br from-slate-50 via-slate-100/50 to-white",
+  brandBadgeGrad: "from-slate-700 to-slate-900 shadow-slate-900/30",
+  navActiveGrad: "bg-gradient-to-r from-slate-700 to-slate-900 text-white shadow-md shadow-slate-950/40",
+  topBorderAccent: "border-t-4 border-t-slate-600",
 };
 
 export const getRoleConfig = (role: UserRole | string | undefined | null): RoleConfig => {

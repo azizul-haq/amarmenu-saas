@@ -445,7 +445,7 @@ const Orders: React.FC = () => {
           </button>
 
           {/* Dual View Mode Toggle */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+          <div className="flex items-center bg-white/60 backdrop-blur-md p-1 rounded-xl border border-white/60 shadow-2xs">
             <button
               onClick={() => setViewMode("kanban")}
               className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
@@ -482,7 +482,7 @@ const Orders: React.FC = () => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search orders by customer, phone, order #, table, or dish..."
-            className="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-orange-500 shadow-2xs"
+            className="w-full pl-9 pr-8 py-2 bg-white/70 backdrop-blur-md border border-white/70 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-orange-500 shadow-2xs"
           />
           {searchQuery && (
             <button
@@ -495,7 +495,7 @@ const Orders: React.FC = () => {
         </div>
 
         {/* Real-time indicator */}
-        <div className="flex items-center space-x-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg w-fit">
+        <div className="flex items-center space-x-2 text-xs font-medium text-emerald-800 bg-white/70 backdrop-blur-md border border-white/60 px-3 py-1.5 rounded-lg shadow-2xs w-fit">
           <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
           <span>Live Realtime Sync • Waiter confirmation active</span>
         </div>
@@ -509,7 +509,7 @@ const Orders: React.FC = () => {
           {kanbanColumns.map((col) => (
             <div
               key={col.id}
-              className="bg-slate-100/80 rounded-2xl border border-slate-200 p-3 space-y-3"
+              className="bg-white/45 backdrop-blur-md rounded-2xl border border-white/60 p-3 space-y-3 shadow-xs"
             >
               {/* Column Header */}
               <div className="flex items-center justify-between px-1 py-1">
@@ -528,7 +528,7 @@ const Orders: React.FC = () => {
 
               {/* Order Cards */}
               {col.orders.length === 0 ? (
-                <div className="text-center py-10 text-slate-400 text-xs bg-white/50 rounded-xl border border-dashed border-slate-200">
+                <div className="text-center py-10 text-slate-400 text-xs bg-white/30 backdrop-blur-xs rounded-xl border border-dashed border-slate-300/60">
                   No active tickets
                 </div>
               ) : (
@@ -538,7 +538,7 @@ const Orders: React.FC = () => {
                     return (
                       <div
                         key={order.id}
-                        className={`bg-white rounded-xl border border-slate-200/90 p-3.5 shadow-xs transition-all hover:shadow-md ${col.borderTop}`}
+                        className={`bg-white/80 backdrop-blur-md rounded-xl border border-white/80 p-3.5 shadow-xs transition-all hover:shadow-md hover:bg-white/95 ${col.borderTop}`}
                       >
                         {/* Top Bar: Table & Elapsed */}
                         <div className="flex items-center justify-between mb-2">
@@ -720,10 +720,10 @@ const Orders: React.FC = () => {
               <button
                 key={tab.id}
                 onClick={() => setStatusFilter(tab.id)}
-                className={`px-4 py-2 rounded-xl font-bold text-xs transition-colors ${
+                className={`px-4 py-2 rounded-xl font-bold text-xs transition-all ${
                   statusFilter === tab.id
                     ? "bg-slate-900 text-white shadow-xs"
-                    : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+                    : "bg-white/70 backdrop-blur-md text-slate-600 hover:bg-white border border-white/60 shadow-2xs"
                 }`}
               >
                 {tab.label}
@@ -744,7 +744,7 @@ const Orders: React.FC = () => {
 
           {/* Production-grade POS Orders Table */}
           {filteredOrders.length === 0 ? (
-            <Card className="text-center py-12">
+            <Card className="text-center py-12 bg-white/70 backdrop-blur-md border border-white/60">
               <Package className="w-16 h-16 text-slate-300 mx-auto mb-4 opacity-50" />
               <h3 className="text-lg font-bold text-slate-800 mb-1">
                 No Orders Found
@@ -754,11 +754,11 @@ const Orders: React.FC = () => {
               </p>
             </Card>
           ) : (
-            <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+            <div className="bg-white/80 backdrop-blur-md rounded-2xl border border-white/70 shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    <tr className="bg-white/60 backdrop-blur-xs border-b border-slate-200/60 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                       <th className="py-3 px-4">SL.</th>
                       <th className="py-3 px-4">Order ID</th>
                       <th className="py-3 px-4">Table No</th>

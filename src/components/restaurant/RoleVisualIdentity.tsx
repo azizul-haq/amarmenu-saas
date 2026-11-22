@@ -22,6 +22,7 @@ export interface RoleConfig {
   dotColor: string;
   watermarkColor: string;
   gradientWash: string;
+  radialWash: string;
   pageBgGradient: string;
   brandBadgeGrad: string;
   navActiveGrad: string;
@@ -41,6 +42,7 @@ export const ROLE_CONFIGS: Record<string, RoleConfig> = {
     dotColor: "bg-purple-600",
     watermarkColor: "text-purple-600",
     gradientWash: "bg-gradient-to-tl from-purple-500/25 via-indigo-500/10 to-transparent",
+    radialWash: "radial-gradient(circle at 100% 100%, rgba(124, 58, 237, 0.14) 0%, rgba(99, 102, 241, 0.05) 45%, transparent 70%)",
     pageBgGradient: "bg-gradient-to-br from-purple-50/90 via-indigo-50/50 to-white",
     brandBadgeGrad: "from-purple-600 to-indigo-600 shadow-purple-900/30",
     navActiveGrad: "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-950/40",
@@ -58,6 +60,7 @@ export const ROLE_CONFIGS: Record<string, RoleConfig> = {
     dotColor: "bg-blue-600",
     watermarkColor: "text-blue-600",
     gradientWash: "bg-gradient-to-tl from-blue-500/25 via-sky-500/10 to-transparent",
+    radialWash: "radial-gradient(circle at 100% 100%, rgba(37, 99, 235, 0.14) 0%, rgba(56, 189, 248, 0.05) 45%, transparent 70%)",
     pageBgGradient: "bg-gradient-to-br from-blue-50/90 via-sky-50/50 to-white",
     brandBadgeGrad: "from-blue-600 to-sky-600 shadow-blue-900/30",
     navActiveGrad: "bg-gradient-to-r from-blue-600 to-sky-600 text-white shadow-md shadow-blue-950/40",
@@ -75,6 +78,7 @@ export const ROLE_CONFIGS: Record<string, RoleConfig> = {
     dotColor: "bg-emerald-600",
     watermarkColor: "text-emerald-600",
     gradientWash: "bg-gradient-to-tl from-emerald-500/25 via-teal-500/10 to-transparent",
+    radialWash: "radial-gradient(circle at 100% 100%, rgba(5, 150, 105, 0.14) 0%, rgba(20, 184, 166, 0.05) 45%, transparent 70%)",
     pageBgGradient: "bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-white",
     brandBadgeGrad: "from-emerald-600 to-teal-600 shadow-emerald-900/30",
     navActiveGrad: "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-950/40",
@@ -92,6 +96,7 @@ export const ROLE_CONFIGS: Record<string, RoleConfig> = {
     dotColor: "bg-orange-600",
     watermarkColor: "text-orange-600",
     gradientWash: "bg-gradient-to-tl from-orange-500/25 via-amber-500/10 to-transparent",
+    radialWash: "radial-gradient(circle at 100% 100%, rgba(234, 88, 12, 0.14) 0%, rgba(251, 146, 60, 0.05) 45%, transparent 70%)",
     pageBgGradient: "bg-gradient-to-br from-orange-50/90 via-amber-50/50 to-white",
     brandBadgeGrad: "from-orange-600 to-amber-500 shadow-orange-900/30",
     navActiveGrad: "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-md shadow-orange-950/40",
@@ -109,6 +114,7 @@ export const ROLE_CONFIGS: Record<string, RoleConfig> = {
     dotColor: "bg-teal-600",
     watermarkColor: "text-teal-600",
     gradientWash: "bg-gradient-to-tl from-teal-500/25 via-cyan-500/10 to-transparent",
+    radialWash: "radial-gradient(circle at 100% 100%, rgba(13, 148, 136, 0.14) 0%, rgba(6, 182, 212, 0.05) 45%, transparent 70%)",
     pageBgGradient: "bg-gradient-to-br from-teal-50/90 via-cyan-50/50 to-white",
     brandBadgeGrad: "from-teal-600 to-cyan-600 shadow-teal-900/30",
     navActiveGrad: "bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-md shadow-teal-950/40",
@@ -126,6 +132,7 @@ export const ROLE_CONFIGS: Record<string, RoleConfig> = {
     dotColor: "bg-rose-600",
     watermarkColor: "text-rose-600",
     gradientWash: "bg-gradient-to-tl from-rose-500/25 via-red-500/10 to-transparent",
+    radialWash: "radial-gradient(circle at 100% 100%, rgba(225, 29, 72, 0.14) 0%, rgba(244, 63, 94, 0.05) 45%, transparent 70%)",
     pageBgGradient: "bg-gradient-to-br from-rose-50/90 via-pink-50/50 to-white",
     brandBadgeGrad: "from-rose-600 to-pink-600 shadow-rose-900/30",
     navActiveGrad: "bg-gradient-to-r from-rose-600 to-pink-600 text-white shadow-md shadow-rose-950/40",
@@ -145,6 +152,7 @@ const DEFAULT_CONFIG: RoleConfig = {
   dotColor: "bg-slate-600",
   watermarkColor: "text-slate-500",
   gradientWash: "bg-gradient-to-tl from-slate-500/20 to-transparent",
+  radialWash: "radial-gradient(circle at 100% 100%, rgba(100, 116, 139, 0.10) 0%, transparent 70%)",
   pageBgGradient: "bg-gradient-to-br from-slate-50 via-slate-100/50 to-white",
   brandBadgeGrad: "from-slate-700 to-slate-900 shadow-slate-900/30",
   navActiveGrad: "bg-gradient-to-r from-slate-700 to-slate-900 text-white shadow-md shadow-slate-950/40",
@@ -207,16 +215,17 @@ export const RoleWatermark: React.FC<{
 
   return (
     <>
-      {/* Subtle Role-Tinted Ambient Gradient Wash in Bottom-Right Corner */}
+      {/* Zero-GPU-overhead lightweight role radial wash */}
       <div
         aria-hidden="true"
-        className={`fixed -bottom-16 -right-16 w-80 h-80 sm:w-[480px] sm:h-[480px] lg:w-[580px] lg:h-[580px] pointer-events-none select-none z-0 rounded-full blur-3xl opacity-40 transition-all duration-700 ${config.gradientWash}`}
+        className="fixed bottom-0 right-0 w-80 h-80 sm:w-[480px] sm:h-[480px] lg:w-[580px] lg:h-[580px] pointer-events-none select-none z-0 transition-opacity duration-700"
+        style={{ background: config.radialWash }}
       />
 
       {/* Role-Specific Background Watermark Illustration */}
       <div
         aria-hidden="true"
-        className={`fixed bottom-4 right-4 sm:bottom-8 sm:right-8 w-72 h-72 sm:w-96 sm:h-96 lg:w-[480px] lg:h-[480px] pointer-events-none select-none z-0 opacity-[0.18] transition-all duration-500`}
+        className="fixed bottom-4 right-4 sm:bottom-8 sm:right-8 w-72 h-72 sm:w-96 sm:h-96 lg:w-[460px] lg:h-[460px] pointer-events-none select-none z-0 opacity-[0.16] transition-opacity duration-500"
       >
         {normalizedRole === "owner" && (
           // Owner: Purple/Indigo Majestic Crown + Storefront + Growth Bars

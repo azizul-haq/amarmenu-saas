@@ -26,7 +26,8 @@ export const subscribeToOrders = (
         .from("orders")
         .select("*")
         .eq("restaurant_id", restaurantId)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(200);
 
       if (error) {
         console.error("fetchOrders error:", error);
@@ -58,7 +59,11 @@ export const subscribeToOrders = (
     )
     .subscribe();
 
-  return subscription;
+  return {
+    unsubscribe: () => {
+      supabase.removeChannel(subscription);
+    },
+  };
 };
 
 // Subscribe to active kitchen orders (accepted, preparing, ready)
@@ -90,7 +95,8 @@ export const subscribeToKitchenOrders = (
         `)
         .eq("restaurant_id", restaurantId)
         .in("status", ["accepted", "preparing", "ready"])
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: true })
+        .limit(100);
 
       if (error) {
         console.error("fetchKitchenOrders error:", error);
@@ -145,7 +151,11 @@ export const subscribeToKitchenOrders = (
     )
     .subscribe();
 
-  return subscription;
+  return {
+    unsubscribe: () => {
+      supabase.removeChannel(subscription);
+    },
+  };
 };
 
 export interface TransitionOrderResult {
@@ -262,7 +272,11 @@ export const subscribeToCategories = (
     )
     .subscribe();
 
-  return subscription;
+  return {
+    unsubscribe: () => {
+      supabase.removeChannel(subscription);
+    },
+  };
 };
 
 // Create category
@@ -337,7 +351,11 @@ export const subscribeToMenuItems = (
     )
     .subscribe();
 
-  return subscription;
+  return {
+    unsubscribe: () => {
+      supabase.removeChannel(subscription);
+    },
+  };
 };
 
 // Create menu item

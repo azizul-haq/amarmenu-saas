@@ -148,105 +148,100 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [restaurantId, setRestaurantId] = useState<string | null>(initialCache.restaurantId);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(initialCache.restaurant);
   const [permissions, setPermissions] = useState<string[]>(initialCache.permissions);
-  const [loading, setLoading] = useState<boolean>(true);
+  // If we already have a valid profile and role in cache, avoid blocking the screen with a full-page spinner
+  const [loading, setLoading] = useState<boolean>(!initialCache.profile && !initialCache.admin);
 
   const isBootDoneRef = useRef(false);
+  const inFlightProfileRef = useRef<Map<string, Promise<{ role: UserRole; restaurant: Restaurant | null; restaurantId: string | null }>>>(new Map());
 
-  // Load user profile & role from the database with multi-layer fallbacks
+  // Load user profile & role from the database with fast parallelized queries & in-flight deduplication
   const loadUserProfile = useCallback(async (currentUser: User): Promise<{
     role: UserRole;
     restaurant: Restaurant | null;
     restaurantId: string | null;
   }> => {
-    try {
-      // 1. Check if user is a platform admin (Super Admin)
-      let adminData: PlatformAdmin | null = null;
-      try {
-        const { data: admAuth } = await supabase
-          .from("platform_admins")
-          .select("*")
-          .eq("auth_user_id", currentUser.id)
-          .eq("is_active", true)
-          .limit(1)
-          .maybeSingle();
+    if (!currentUser?.id) {
+      return { role: null, restaurant: null, restaurantId: null };
+    }
 
-        if (admAuth) {
-          adminData = admAuth as PlatformAdmin;
-        } else if (currentUser.email) {
-          const { data: admEmail } = await supabase
+    // Deduplicate: If profile resolution is already running for this user, reuse the active promise
+    if (inFlightProfileRef.current.has(currentUser.id)) {
+      return inFlightProfileRef.current.get(currentUser.id)!;
+    }
+
+    const taskPromise: Promise<{ role: UserRole; restaurant: Restaurant | null; restaurantId: string | null }> = (async () => {
+      try {
+        const userEmail = currentUser.email ? currentUser.email.trim() : null;
+
+        // Stage 1: Parallelize Platform Admin and Restaurant Staff lookups
+        const [adminRes, staffByAuthRes] = await Promise.all([
+          supabase
             .from("platform_admins")
             .select("*")
-            .ilike("email", currentUser.email.trim())
+            .eq("auth_user_id", currentUser.id)
             .eq("is_active", true)
             .limit(1)
-            .maybeSingle();
-
-          if (admEmail) adminData = admEmail as PlatformAdmin;
-        }
-      } catch (adminErr) {
-        console.warn("Failed checking platform_admins:", adminErr);
-      }
-
-      if (adminData) {
-        setPlatformAdmin(adminData);
-        setRole("super_admin");
-        setProfile(null);
-        setRestaurantId(null);
-        setRestaurant(null);
-
-        try {
-          sessionStorage.setItem("admin", JSON.stringify(adminData));
-          sessionStorage.setItem("role", "super_admin");
-        } catch {
-          // ignore
-        }
-
-        // Super Admin gets all permissions dynamically from role_permissions
-        try {
-          const { data: allPerms } = await supabase
-            .from("role_permissions")
-            .select("permission");
-          const uniquePerms = Array.from(
-            new Set((allPerms || []).map((p: { permission: string }) => p.permission))
-          );
-          setPermissions(uniquePerms);
-        } catch {
-          // fallback
-        }
-
-        return { role: "super_admin", restaurant: null, restaurantId: null };
-      }
-
-      // 2. Check if user is a restaurant staff member (Owner, Manager, Cashier, Kitchen, Waiter)
-      let staffData: RestaurantStaff | null = null;
-
-      // 2a. Match by auth_user_id first (most direct & secure)
-      if (currentUser.id) {
-        try {
-          const { data: sByAuth } = await supabase
+            .maybeSingle(),
+          supabase
             .from("restaurant_staff")
             .select("id, auth_user_id, restaurant_id, full_name, phone, email, role, is_active, created_at, updated_at")
             .eq("auth_user_id", currentUser.id)
             .eq("is_active", true)
             .order("created_at", { ascending: false })
             .limit(1)
+            .maybeSingle(),
+        ]);
+
+        let adminData: PlatformAdmin | null = adminRes.data as PlatformAdmin | null;
+        if (!adminData && userEmail) {
+          const { data: admEmail } = await supabase
+            .from("platform_admins")
+            .select("*")
+            .ilike("email", userEmail)
+            .eq("is_active", true)
+            .limit(1)
             .maybeSingle();
-
-          if (sByAuth) {
-            staffData = sByAuth as RestaurantStaff;
-          }
-        } catch (e) {
-          console.warn("Error finding staff by auth_user_id:", e);
+          if (admEmail) adminData = admEmail as PlatformAdmin;
         }
-      }
 
-      // 2b. Fallback: match by email and self-heal auth_user_id link
-      if (!staffData && currentUser.email) {
-        try {
+        // If Platform Admin (Super Admin)
+        if (adminData) {
+          setPlatformAdmin(adminData);
+          setRole("super_admin");
+          setProfile(null);
+          setRestaurantId(null);
+          setRestaurant(null);
+
+          try {
+            sessionStorage.setItem("admin", JSON.stringify(adminData));
+            sessionStorage.setItem("role", "super_admin");
+          } catch {
+            // ignore
+          }
+
+          // Fetch permissions dynamically
+          try {
+            const { data: allPerms } = await supabase
+              .from("role_permissions")
+              .select("permission");
+            const uniquePerms = Array.from(
+              new Set((allPerms || []).map((p: { permission: string }) => p.permission))
+            );
+            setPermissions(uniquePerms);
+          } catch {
+            // fallback
+          }
+
+          return { role: "super_admin" as UserRole, restaurant: null, restaurantId: null };
+        }
+
+        // Check staff data
+        let staffData: RestaurantStaff | null = staffByAuthRes.data as RestaurantStaff | null;
+        if (!staffData && userEmail) {
           const { data: sByEmail } = await supabase
             .from("restaurant_staff")
             .select("id, auth_user_id, restaurant_id, full_name, phone, email, role, is_active, created_at, updated_at")
-            .ilike("email", currentUser.email.trim())
+            .ilike("email", userEmail)
             .eq("is_active", true)
             .order("created_at", { ascending: false })
             .limit(1)
@@ -254,122 +249,97 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           if (sByEmail) {
             staffData = sByEmail as RestaurantStaff;
-            // Self-heal auth_user_id link if missing
             if (!sByEmail.auth_user_id) {
-              await supabase
+              supabase
                 .from("restaurant_staff")
                 .update({ auth_user_id: currentUser.id })
-                .eq("id", sByEmail.id);
+                .eq("id", sByEmail.id)
+                .then(() => {});
             }
           }
-        } catch (e) {
-          console.warn("Error finding staff by email:", e);
-        }
-      }
-
-      // 2c. Fallback: check app_metadata
-      const metaRole = (currentUser.app_metadata?.role as UserRole) || null;
-      const metaRestaurantId = (currentUser.app_metadata?.restaurant_id as string) || null;
-
-      if (staffData || (metaRole && metaRestaurantId)) {
-        const rawRole = staffData?.role || metaRole;
-        const effectiveRole = (rawRole ? String(rawRole).toLowerCase().trim() : null) as UserRole;
-        const effectiveRestaurantId = staffData?.restaurant_id || metaRestaurantId;
-
-        const staffObj = staffData || ({
-          id: currentUser.id,
-          auth_user_id: currentUser.id,
-          restaurant_id: effectiveRestaurantId!,
-          full_name: (currentUser.user_metadata?.full_name as string) || currentUser.email || "Staff Member",
-          phone: (currentUser.user_metadata?.phone as string) || null,
-          email: currentUser.email || null,
-          role: effectiveRole as any,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        } as RestaurantStaff);
-
-        setProfile(staffObj);
-        setRole(effectiveRole);
-        setRestaurantId(effectiveRestaurantId);
-        setPlatformAdmin(null);
-
-        try {
-          sessionStorage.setItem("user", JSON.stringify({ ...staffObj, restaurant_id: effectiveRestaurantId }));
-          sessionStorage.setItem("role", effectiveRole || "");
-        } catch {
-          // ignore
         }
 
-        // Fetch dynamic permissions for this role from the database with reliable fallback
-        if (effectiveRole) {
+        const metaRole = (currentUser.app_metadata?.role as UserRole) || null;
+        const metaRestaurantId = (currentUser.app_metadata?.restaurant_id as string) || null;
+
+        if (staffData || (metaRole && metaRestaurantId)) {
+          const rawRole = staffData?.role || metaRole;
+          const effectiveRole = (rawRole ? String(rawRole).toLowerCase().trim() : null) as UserRole;
+          const effectiveRestaurantId = staffData?.restaurant_id || metaRestaurantId;
+
+          const staffObj = staffData || ({
+            id: currentUser.id,
+            auth_user_id: currentUser.id,
+            restaurant_id: effectiveRestaurantId!,
+            full_name: (currentUser.user_metadata?.full_name as string) || currentUser.email || "Staff Member",
+            phone: (currentUser.user_metadata?.phone as string) || null,
+            email: currentUser.email || null,
+            role: effectiveRole as any,
+            is_active: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          } as RestaurantStaff);
+
+          setProfile(staffObj);
+          setRole(effectiveRole);
+          setRestaurantId(effectiveRestaurantId);
+          setPlatformAdmin(null);
+
           try {
-            const { data: permData, error: permErr } = await supabase
-              .from("role_permissions")
-              .select("permission")
-              .eq("role", effectiveRole);
-
-            if (!permErr && permData && permData.length > 0) {
-              const rolePerms = permData.map((p: { permission: string }) => p.permission);
-              setPermissions(rolePerms);
-              try {
-                sessionStorage.setItem("permissions", JSON.stringify(rolePerms));
-              } catch {
-                // ignore
-              }
-            } else if (DEFAULT_ROLE_PERMISSIONS[effectiveRole]) {
-              const fallbackPerms = DEFAULT_ROLE_PERMISSIONS[effectiveRole];
-              setPermissions(fallbackPerms);
-              try {
-                sessionStorage.setItem("permissions", JSON.stringify(fallbackPerms));
-              } catch {
-                // ignore
-              }
-            }
-          } catch (pErr) {
-            console.warn("Failed fetching role permissions:", pErr);
-            if (DEFAULT_ROLE_PERMISSIONS[effectiveRole]) {
-              const fallbackPerms = DEFAULT_ROLE_PERMISSIONS[effectiveRole];
-              setPermissions(fallbackPerms);
-              try {
-                sessionStorage.setItem("permissions", JSON.stringify(fallbackPerms));
-              } catch {
-                // ignore
-              }
-            }
-          }
-        }
-
-        // Load associated restaurant details via get_my_restaurant() RPC with direct table fallback
-        let loadedRestaurant: Restaurant | null = null;
-        if (effectiveRestaurantId) {
-          try {
-            const { data: restData, error: restErr } = await supabase.rpc("get_my_restaurant");
-            if (!restErr && restData) {
-              loadedRestaurant = restData as Restaurant;
-            }
-          } catch (rErr) {
-            console.warn("get_my_restaurant RPC failed:", rErr);
+            sessionStorage.setItem("user", JSON.stringify({ ...staffObj, restaurant_id: effectiveRestaurantId }));
+            sessionStorage.setItem("role", effectiveRole || "");
+          } catch {
+            // ignore
           }
 
-          if (!loadedRestaurant) {
+          // Stage 2: Parallelize role_permissions and restaurant details in ONE roundtrip
+          const [permRes, restRpcRes] = await Promise.all([
+            effectiveRole
+              ? supabase
+                  .from("role_permissions")
+                  .select("permission")
+                  .eq("role", effectiveRole)
+              : Promise.resolve({ data: null, error: null }),
+            effectiveRestaurantId
+              ? supabase.rpc("get_my_restaurant")
+              : Promise.resolve({ data: null, error: null }),
+          ]);
+
+          // Handle permissions
+          if (!permRes.error && permRes.data && permRes.data.length > 0) {
+            const rolePerms = permRes.data.map((p: { permission: string }) => p.permission);
+            setPermissions(rolePerms);
             try {
-              const { data: directRest } = await supabase
-                .from("restaurants")
-                .select("id, name, name_bn, slug, phone, email, address, city, logo_url, qr_code_url, currency, currency_symbol, default_vat_rate, service_charge_rate, is_active, status, subscription_plan")
-                .eq("id", effectiveRestaurantId)
-                .maybeSingle();
-
-              if (directRest) {
-                loadedRestaurant = directRest as Restaurant;
-              }
-            } catch (dErr) {
-              console.warn("Direct restaurant fetch fallback error:", dErr);
+              sessionStorage.setItem("permissions", JSON.stringify(rolePerms));
+            } catch {
+              // ignore
+            }
+          } else if (effectiveRole && DEFAULT_ROLE_PERMISSIONS[effectiveRole]) {
+            const fallbackPerms = DEFAULT_ROLE_PERMISSIONS[effectiveRole];
+            setPermissions(fallbackPerms);
+            try {
+              sessionStorage.setItem("permissions", JSON.stringify(fallbackPerms));
+            } catch {
+              // ignore
             }
           }
 
+          // Handle restaurant details
+          let loadedRestaurant: Restaurant | null = null;
+          if (!restRpcRes.error && restRpcRes.data) {
+            loadedRestaurant = restRpcRes.data as Restaurant;
+          } else if (effectiveRestaurantId) {
+            // Direct table fallback
+            const { data: directRest } = await supabase
+              .from("restaurants")
+              .select("id, name, name_bn, slug, phone, email, address, city, logo_url, qr_code_url, currency, currency_symbol, default_vat_rate, service_charge_rate, is_active, status, subscription_plan")
+              .eq("id", effectiveRestaurantId)
+              .maybeSingle();
+
+            if (directRest) loadedRestaurant = directRest as Restaurant;
+          }
+
           if (!loadedRestaurant) {
-            // Restore from cache if available
             const cachedRest = safeStorageGet<Restaurant>("current_restaurant");
             if (cachedRest) loadedRestaurant = cachedRest;
           }
@@ -382,57 +352,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               // ignore
             }
           }
+
+          return {
+            role: effectiveRole,
+            restaurant: loadedRestaurant,
+            restaurantId: effectiveRestaurantId,
+          };
         }
 
-        return {
-          role: effectiveRole,
-          restaurant: loadedRestaurant,
-          restaurantId: effectiveRestaurantId,
-        };
-      }
+        // 3. Fallback: Check if user owns a restaurant directly by email
+        if (userEmail) {
+          try {
+            const { data: restOwner } = await supabase
+              .from("restaurants")
+              .select("*")
+              .ilike("email", userEmail)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
 
-      // 3. Fallback: Check if user owns a restaurant directly by email
-      if (currentUser.email) {
-        try {
-          const { data: restOwner } = await supabase
-            .from("restaurants")
-            .select("*")
-            .ilike("email", currentUser.email.trim())
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          if (restOwner) {
-            const rest = restOwner as Restaurant;
-            setRestaurant(rest);
-            setRestaurantId(rest.id);
-            setRole("owner");
-            try {
-              sessionStorage.setItem("current_restaurant", JSON.stringify(rest));
-              sessionStorage.setItem("role", "owner");
-            } catch {
-              // ignore
+            if (restOwner) {
+              const rest = restOwner as Restaurant;
+              setRestaurant(rest);
+              setRestaurantId(rest.id);
+              setRole("owner");
+              try {
+                sessionStorage.setItem("current_restaurant", JSON.stringify(rest));
+                sessionStorage.setItem("role", "owner");
+              } catch {
+                // ignore
+              }
+              return { role: "owner" as UserRole, restaurant: rest, restaurantId: rest.id };
             }
-            return { role: "owner", restaurant: rest, restaurantId: rest.id };
+          } catch (oErr) {
+            console.warn("Owner fallback error:", oErr);
           }
-        } catch (oErr) {
-          console.warn("Owner fallback error:", oErr);
         }
-      }
 
-      // No role found
-      safeClearAuthStorage();
-      setRole(null);
-      setProfile(null);
-      setPlatformAdmin(null);
-      setRestaurantId(null);
-      setRestaurant(null);
-      setPermissions([]);
-      return { role: null, restaurant: null, restaurantId: null };
-    } catch (err) {
-      console.error("Error loading user profile:", err);
-      return { role: null, restaurant: null, restaurantId: null };
-    }
+        // No role found
+        safeClearAuthStorage();
+        setRole(null);
+        setProfile(null);
+        setPlatformAdmin(null);
+        setRestaurantId(null);
+        setRestaurant(null);
+        setPermissions([]);
+        return { role: null, restaurant: null, restaurantId: null };
+      } catch (err) {
+        console.error("Error loading user profile:", err);
+        return { role: null, restaurant: null, restaurantId: null };
+      } finally {
+        inFlightProfileRef.current.delete(currentUser.id);
+      }
+    })();
+
+    inFlightProfileRef.current.set(currentUser.id, taskPromise);
+    return taskPromise;
   }, []);
 
   const hasPermission = useCallback(

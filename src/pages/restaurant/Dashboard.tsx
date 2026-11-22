@@ -478,8 +478,8 @@ const RestaurantDashboard: React.FC = () => {
           isCollapsed ? "lg:pl-20" : "lg:pl-64"
         }`}
       >
-        {/* Modern Sticky Top Utility Bar with Glassmorphism & Role-Colored Top Border */}
-        <header className={`sticky top-0 z-30 h-16 bg-white/70 backdrop-blur-md border-b border-white/60 shadow-xs px-4 sm:px-6 flex items-center justify-between transition-all duration-300 ${roleConfig.topBorderAccent}`}>
+        {/* Modern Sticky Top Utility Bar with Lightweight Glassmorphism & Role-Colored Top Border */}
+        <header className={`sticky top-0 z-30 h-16 bg-white/85 backdrop-blur-sm border-b border-slate-200/80 shadow-xs px-4 sm:px-6 flex items-center justify-between transition-all duration-300 ${roleConfig.topBorderAccent}`}>
           {/* Mobile hamburger */}
           <div className="flex items-center space-x-2 lg:hidden">
             <button

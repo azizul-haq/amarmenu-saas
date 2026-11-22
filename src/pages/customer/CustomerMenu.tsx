@@ -58,6 +58,7 @@ const CustomerMenuContent: React.FC = () => {
   const {
     cart,
     addItem,
+    updateQuantity,
     clearCart,
     subtotal,
     itemCount,
@@ -221,7 +222,8 @@ const CustomerMenuContent: React.FC = () => {
     return matchesSearch && matchesCategory && item.is_available;
   });
 
-  const handleItemClick = (item: MenuItem) => {
+  const handleItemClick = (item: MenuItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if (
       (item.sizes && item.sizes.length > 0) ||
       (item.addons && item.addons.length > 0)
@@ -230,6 +232,28 @@ const CustomerMenuContent: React.FC = () => {
       setShowItemModal(true);
     } else {
       addItem(item, 1);
+    }
+  };
+
+  const handleIncrement = (item: MenuItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const itemCartEntries = cart.filter((ci) => ci.id === item.id);
+    if (itemCartEntries.length > 0) {
+      // If item is already in cart, increment the most recently added entry
+      const target = itemCartEntries[itemCartEntries.length - 1];
+      updateQuantity(target.cartKey, 1);
+    } else {
+      handleItemClick(item, e);
+    }
+  };
+
+  const handleDecrement = (item: MenuItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const itemCartEntries = cart.filter((ci) => ci.id === item.id);
+    if (itemCartEntries.length > 0) {
+      // Decrement the most recently added entry; CartContext automatically removes it when quantity reaches 0
+      const target = itemCartEntries[itemCartEntries.length - 1];
+      updateQuantity(target.cartKey, -1);
     }
   };
 
@@ -391,7 +415,14 @@ const CustomerMenuContent: React.FC = () => {
                   key={item.id}
                   className="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 flex flex-col justify-between"
                 >
-                  <div>
+                  <div
+                    className={hasVariations ? "cursor-pointer" : undefined}
+                    onClick={(e) => {
+                      if (hasVariations) {
+                        handleItemClick(item, e);
+                      }
+                    }}
+                  >
                     <div className="relative h-36 bg-gray-100 overflow-hidden">
                       {item.image_url ? (
                         <img
@@ -453,19 +484,38 @@ const CustomerMenuContent: React.FC = () => {
                         <div>
                           {countInCart === 0 ? (
                             <button
-                              onClick={() => handleItemClick(item)}
-                              className="px-3.5 py-1.5 border border-accent bg-accent/5 hover:bg-accent hover:text-white text-accent font-bold text-xs rounded-lg transition-colors"
+                              type="button"
+                              onClick={(e) => handleItemClick(item, e)}
+                              className="px-3.5 py-1.5 border border-accent bg-accent/5 hover:bg-accent hover:text-white text-accent font-bold text-xs rounded-lg transition-colors flex items-center gap-1 shadow-sm active:scale-95"
                             >
-                              {lang === "bn" ? "যোগ করুন" : "ADD"}
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>{lang === "bn" ? "যোগ করুন" : "Add"}</span>
                             </button>
                           ) : (
-                            <button
-                              onClick={() => handleItemClick(item)}
-                              className="px-3 py-1.5 bg-accent text-white font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-sm"
+                            <div
+                              className="flex items-center bg-accent text-white rounded-lg shadow-sm overflow-hidden"
+                              onClick={(e) => e.stopPropagation()}
                             >
-                              <span>{countInCart}</span>
-                              <Plus className="w-3 h-3" />
-                            </button>
+                              <button
+                                type="button"
+                                onClick={(e) => handleDecrement(item, e)}
+                                className="p-1.5 px-2 hover:bg-accent-hover text-white transition-colors flex items-center justify-center active:scale-95"
+                                aria-label="Decrease quantity"
+                              >
+                                <Minus className="w-3 h-3 stroke-[2.5]" />
+                              </button>
+                              <span className="min-w-[1.5rem] px-1 text-center font-extrabold text-xs select-none">
+                                {countInCart}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => handleIncrement(item, e)}
+                                className="p-1.5 px-2 hover:bg-accent-hover text-white transition-colors flex items-center justify-center active:scale-95"
+                                aria-label="Increase quantity"
+                              >
+                                <Plus className="w-3 h-3 stroke-[2.5]" />
+                              </button>
+                            </div>
                           )}
                         </div>
                       )}
@@ -611,28 +661,34 @@ const CartModal: React.FC<CartModalProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <div className="flex items-center bg-white border border-gray-200 rounded-lg">
+                    <div className="flex items-center bg-white border border-gray-200 rounded-lg shadow-sm">
                       <button
+                        type="button"
                         onClick={() => updateQuantity(item.cartKey, -1)}
-                        className="p-1.5 hover:bg-gray-100 text-gray-600 rounded-l-lg transition-colors"
+                        className="p-1.5 hover:bg-gray-100 text-gray-600 rounded-l-lg transition-colors active:scale-95"
+                        aria-label="Decrease quantity"
                       >
                         <Minus className="w-3 h-3" />
                       </button>
-                      <span className="w-7 text-center font-bold text-xs text-gray-900">
+                      <span className="w-7 text-center font-bold text-xs text-gray-900 select-none">
                         {item.quantity}
                       </span>
                       <button
+                        type="button"
                         onClick={() => updateQuantity(item.cartKey, 1)}
-                        className="p-1.5 hover:bg-gray-100 text-gray-600 rounded-r-lg transition-colors"
+                        className="p-1.5 hover:bg-gray-100 text-gray-600 rounded-r-lg transition-colors active:scale-95"
+                        aria-label="Increase quantity"
                       >
                         <Plus className="w-3 h-3" />
                       </button>
                     </div>
 
                     <button
+                      type="button"
                       onClick={() => removeItem(item.cartKey)}
-                      className="p-1.5 text-gray-400 hover:text-error hover:bg-red-50 rounded-lg transition-colors"
+                      className="p-1.5 text-gray-400 hover:text-error hover:bg-red-50 rounded-lg transition-colors active:scale-95"
                       title="Remove"
+                      aria-label="Remove item"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -801,19 +857,23 @@ const ItemCustomizationModal: React.FC<ItemCustomizationModalProps> = ({
 
         {/* Quantity and Total */}
         <div className="border-t border-gray-100 pt-3 flex items-center justify-between">
-          <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+          <div className="flex items-center bg-gray-100 rounded-lg p-0.5 shadow-2xs">
             <button
+              type="button"
               onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-              className="p-1.5 hover:bg-white text-gray-600 rounded-md transition-colors"
+              className="p-1.5 hover:bg-white text-gray-600 rounded-md transition-colors active:scale-95"
+              aria-label="Decrease quantity"
             >
               <Minus className="w-3.5 h-3.5" />
             </button>
-            <span className="w-8 text-center font-bold text-xs text-gray-900">
+            <span className="w-8 text-center font-bold text-xs text-gray-900 select-none">
               {quantity}
             </span>
             <button
+              type="button"
               onClick={() => setQuantity((q) => q + 1)}
-              className="p-1.5 hover:bg-white text-gray-600 rounded-md transition-colors"
+              className="p-1.5 hover:bg-white text-gray-600 rounded-md transition-colors active:scale-95"
+              aria-label="Increase quantity"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>

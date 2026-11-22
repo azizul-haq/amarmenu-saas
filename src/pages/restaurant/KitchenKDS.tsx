@@ -42,6 +42,7 @@ const KitchenKDS: React.FC = () => {
     restaurant: authRestaurant,
     restaurantId: authRestaurantId,
     user,
+    role,
     loading: authLoading,
   } = useAuth();
 
@@ -576,15 +577,21 @@ const KitchenKDS: React.FC = () => {
 
                   {/* Actions */}
                   <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      fullWidth
-                      className="bg-green-600 hover:bg-green-700 text-white font-bold text-xs"
-                      onClick={() => handleStatusChange(order.id, "served")}
-                    >
-                      ✓ Mark Served
-                    </Button>
+                    {role === "kitchen" ? (
+                      <div className="flex-1 py-2 px-3 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 shadow-sm text-center">
+                        <span>🔔 Ready — Waiting for Waiter Pickup</span>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        fullWidth
+                        className="bg-green-600 hover:bg-green-700 text-white font-bold text-xs"
+                        onClick={() => handleStatusChange(order.id, "served")}
+                      >
+                        ✓ Mark Served
+                      </Button>
+                    )}
                     <button
                       onClick={() => handlePrintKOT(order)}
                       className="p-2 border border-gray-300 hover:border-accent hover:text-accent rounded-lg text-gray-600 transition-colors"

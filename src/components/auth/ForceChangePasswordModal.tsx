@@ -88,7 +88,7 @@ export const ForceChangePasswordModal: React.FC<ForceChangePasswordModalProps> =
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="relative">
+          <div>
             <Input
               label="New Password"
               type={showPassword ? "text" : "password"}
@@ -96,14 +96,18 @@ export const ForceChangePasswordModal: React.FC<ForceChangePasswordModalProps> =
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="••••••••••"
               required
+              rightElement={
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-slate-400 hover:text-slate-600 focus:outline-hidden transition-colors p-1"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              }
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-8 text-slate-400 hover:text-slate-600"
-            >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
           </div>
 
           <div>
@@ -114,6 +118,17 @@ export const ForceChangePasswordModal: React.FC<ForceChangePasswordModalProps> =
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="••••••••••"
               required
+              rightElement={
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-slate-400 hover:text-slate-600 focus:outline-hidden transition-colors p-1"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              }
             />
           </div>
 

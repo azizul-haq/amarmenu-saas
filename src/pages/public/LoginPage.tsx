@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Store, ArrowLeft, Mail, Lock, AlertCircle } from "lucide-react";
+import { Store, ArrowLeft, Mail, Lock, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { Button, Input, Alert, Card } from "../../components/ui";
 import { APP_CONFIG } from "../../config/config";
 import { supabase } from "../../config/supabase";
@@ -11,6 +11,7 @@ const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { signIn, signOut, user, role, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     email: "",
@@ -159,13 +160,24 @@ const LoginPage: React.FC = () => {
             <Input
               label="Password"
               name="password"
-              type="password"
+              type={showPassword ? "text" : "password"}
               value={formData.password}
               onChange={handleChange}
               placeholder="Enter your password"
               icon={<Lock className="w-5 h-5" />}
               required
               autoComplete="current-password"
+              rightElement={
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-slate-400 hover:text-slate-600 focus:outline-hidden transition-colors p-1"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              }
             />
 
             <div className="flex items-center justify-between text-sm">

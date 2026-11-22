@@ -11,6 +11,8 @@ import {
   Check,
   Ban,
   Trash2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Card, Button, Input, Select, Modal, Alert, Loading } from "../../components/ui";
 import { supabase } from "../../config/supabase";
@@ -34,6 +36,7 @@ export const StaffPage: React.FC = () => {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [staffRole, setStaffRole] = useState<string>("waiter");
 
   // Delete modal state
@@ -81,6 +84,7 @@ export const StaffPage: React.FC = () => {
     setEmail("");
     setPhone("");
     setPassword("");
+    setShowPassword(false);
     setStaffRole("waiter");
     setIsModalOpen(true);
   };
@@ -91,6 +95,7 @@ export const StaffPage: React.FC = () => {
     setEmail(staff.email || "");
     setPhone(staff.phone || "");
     setPassword("");
+    setShowPassword(false);
     setStaffRole(staff.role);
     setIsModalOpen(true);
   };
@@ -488,13 +493,24 @@ export const StaffPage: React.FC = () => {
           {!editingStaff && (
             <Input
               label="Login Password"
-              type="password"
+              type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Min. 6 characters (e.g. staff123)"
               helperText="Owner sets the password directly so staff can log in immediately"
               required
               minLength={6}
+              rightElement={
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-slate-400 hover:text-slate-600 focus:outline-hidden transition-colors p-1"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              }
             />
           )}
 

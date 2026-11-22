@@ -33,7 +33,8 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     return () => clearTimeout(timer);
   }, [loading]);
 
-  if (loading && !hasTimedOut) {
+  // Only show full-screen spinner on cold boot when we do NOT yet have cached user or role
+  if (loading && !user && !role && !hasTimedOut) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-bg-subtle">
         <Loading text="Authenticating..." />
@@ -43,6 +44,13 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   // Not logged in -> Redirect to login page
   if (!user) {
+    if (loading && !hasTimedOut) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-bg-subtle">
+          <Loading text="Authenticating..." />
+        </div>
+      );
+    }
     return <Navigate to={fallbackPath} state={{ from: location }} replace />;
   }
 

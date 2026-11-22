@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import type { User, Session } from "@supabase/supabase-js";
-import { supabase } from "../config/supabase";
+import { supabase, getTabStorageKey } from "../config/supabase";
 import type { Restaurant, RestaurantStaff, PlatformAdmin } from "../config/supabase";
 
 export type UserRole = "super_admin" | "owner" | "manager" | "cashier" | "kitchen" | "waiter" | null;
@@ -95,11 +95,13 @@ function safeClearAuthStorage() {
   if (typeof window === "undefined") return;
   try {
     sessionStorage.removeItem("user");
+    sessionStorage.removeItem("auth_user");
     sessionStorage.removeItem("admin");
     sessionStorage.removeItem("current_restaurant");
     sessionStorage.removeItem("role");
     sessionStorage.removeItem("permissions");
     localStorage.removeItem("user");
+    localStorage.removeItem("auth_user");
     localStorage.removeItem("admin");
     localStorage.removeItem("current_restaurant");
     localStorage.removeItem("role");
@@ -128,19 +130,53 @@ const getStoredAuthState = () => {
       ? DEFAULT_ROLE_PERMISSIONS[initialRole]
       : [];
 
+  let initialUser: User | null = safeStorageGet<User>("auth_user");
+  if (!initialUser) {
+    try {
+      const rawSession = sessionStorage.getItem(getTabStorageKey());
+      if (rawSession) {
+        const parsed = JSON.parse(rawSession);
+        if (parsed?.user) initialUser = parsed.user;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // If we have cached profile/admin but no auth_user object yet, construct a valid User stub
+  if (!initialUser && (parsedUser || parsedAdmin)) {
+    const fallbackId = parsedUser?.auth_user_id || parsedUser?.id || parsedAdmin?.auth_user_id || parsedAdmin?.id || "cached_user";
+    const fallbackEmail = parsedUser?.email || parsedAdmin?.email || "cached@amarmenu.internal";
+    initialUser = {
+      id: fallbackId,
+      app_metadata: { role: initialRole, restaurant_id: parsedRest?.id || parsedUser?.restaurant_id },
+      user_metadata: { full_name: parsedUser?.full_name || parsedAdmin?.full_name },
+      aud: "authenticated",
+      created_at: parsedUser?.created_at || new Date().toISOString(),
+      email: fallbackEmail,
+    } as unknown as User;
+  }
+
+  const hasCachedData = Boolean(
+    (parsedAdmin && initialRole === "super_admin") ||
+    (parsedUser && initialRole && (parsedRest || parsedUser.restaurant_id))
+  );
+
   return {
+    user: initialUser,
     profile: parsedUser,
     admin: parsedAdmin,
     role: initialRole,
     restaurant: parsedRest,
     restaurantId: (parsedRest?.id || parsedUser?.restaurant_id || null) as string | null,
     permissions: initialPermissions,
+    hasCachedData,
   };
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const initialCache = getStoredAuthState();
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(initialCache.user);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<RestaurantStaff | null>(initialCache.profile);
   const [platformAdmin, setPlatformAdmin] = useState<PlatformAdmin | null>(initialCache.admin);
@@ -148,10 +184,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [restaurantId, setRestaurantId] = useState<string | null>(initialCache.restaurantId);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(initialCache.restaurant);
   const [permissions, setPermissions] = useState<string[]>(initialCache.permissions);
-  // If we already have a valid profile and role in cache, avoid blocking the screen with a full-page spinner
-  const [loading, setLoading] = useState<boolean>(!initialCache.profile && !initialCache.admin);
+  // Zero-delay hydration: If valid cached state exists in sessionStorage, render immediately!
+  const [loading, setLoading] = useState<boolean>(!initialCache.hasCachedData);
 
   const isBootDoneRef = useRef(false);
+  const loadedUserIdRef = useRef<string | null>(initialCache.user?.id || null);
   const inFlightProfileRef = useRef<Map<string, Promise<{ role: UserRole; restaurant: Restaurant | null; restaurantId: string | null }>>>(new Map());
 
   // Load user profile & role from the database with fast parallelized queries & in-flight deduplication
@@ -173,36 +210,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const userEmail = currentUser.email ? currentUser.email.trim() : null;
 
-        // Stage 1: Parallelize Platform Admin and Restaurant Staff lookups
-        const [adminRes, staffByAuthRes] = await Promise.all([
-          supabase
-            .from("platform_admins")
-            .select("*")
-            .eq("auth_user_id", currentUser.id)
-            .eq("is_active", true)
-            .limit(1)
-            .maybeSingle(),
-          supabase
-            .from("restaurant_staff")
-            .select("id, auth_user_id, restaurant_id, full_name, phone, email, role, is_active, created_at, updated_at")
-            .eq("auth_user_id", currentUser.id)
-            .eq("is_active", true)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-        ]);
+        // Stage 1: Parallelize Platform Admin and Restaurant Staff lookups using explicit columns
+        const adminPromise = userEmail
+          ? supabase
+              .from("platform_admins")
+              .select("id, auth_user_id, email, full_name, is_active, created_at")
+              .or(`auth_user_id.eq.${currentUser.id},email.ilike.${userEmail}`)
+              .eq("is_active", true)
+              .limit(1)
+              .maybeSingle()
+          : supabase
+              .from("platform_admins")
+              .select("id, auth_user_id, email, full_name, is_active, created_at")
+              .eq("auth_user_id", currentUser.id)
+              .eq("is_active", true)
+              .limit(1)
+              .maybeSingle();
 
-        let adminData: PlatformAdmin | null = adminRes.data as PlatformAdmin | null;
-        if (!adminData && userEmail) {
-          const { data: admEmail } = await supabase
-            .from("platform_admins")
-            .select("*")
-            .ilike("email", userEmail)
-            .eq("is_active", true)
-            .limit(1)
-            .maybeSingle();
-          if (admEmail) adminData = admEmail as PlatformAdmin;
-        }
+        const staffPromise = userEmail
+          ? supabase
+              .from("restaurant_staff")
+              .select("id, auth_user_id, restaurant_id, full_name, phone, email, role, is_active, created_at, updated_at")
+              .or(`auth_user_id.eq.${currentUser.id},email.ilike.${userEmail}`)
+              .eq("is_active", true)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle()
+          : supabase
+              .from("restaurant_staff")
+              .select("id, auth_user_id, restaurant_id, full_name, phone, email, role, is_active, created_at, updated_at")
+              .eq("auth_user_id", currentUser.id)
+              .eq("is_active", true)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+        const [adminRes, staffRes] = await Promise.all([adminPromise, staffPromise]);
+
+        const adminData: PlatformAdmin | null = adminRes.data as PlatformAdmin | null;
 
         // If Platform Admin (Super Admin)
         if (adminData) {
@@ -215,6 +260,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             sessionStorage.setItem("admin", JSON.stringify(adminData));
             sessionStorage.setItem("role", "super_admin");
+            sessionStorage.setItem("auth_user", JSON.stringify(currentUser));
           } catch {
             // ignore
           }
@@ -228,6 +274,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               new Set((allPerms || []).map((p: { permission: string }) => p.permission))
             );
             setPermissions(uniquePerms);
+            try {
+              sessionStorage.setItem("permissions", JSON.stringify(uniquePerms));
+            } catch {
+              // ignore
+            }
           } catch {
             // fallback
           }
@@ -236,27 +287,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // Check staff data
-        let staffData: RestaurantStaff | null = staffByAuthRes.data as RestaurantStaff | null;
-        if (!staffData && userEmail) {
-          const { data: sByEmail } = await supabase
+        let staffData: RestaurantStaff | null = staffRes.data as RestaurantStaff | null;
+        if (staffData && !staffData.auth_user_id) {
+          supabase
             .from("restaurant_staff")
-            .select("id, auth_user_id, restaurant_id, full_name, phone, email, role, is_active, created_at, updated_at")
-            .ilike("email", userEmail)
-            .eq("is_active", true)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          if (sByEmail) {
-            staffData = sByEmail as RestaurantStaff;
-            if (!sByEmail.auth_user_id) {
-              supabase
-                .from("restaurant_staff")
-                .update({ auth_user_id: currentUser.id })
-                .eq("id", sByEmail.id)
-                .then(() => {});
-            }
-          }
+            .update({ auth_user_id: currentUser.id })
+            .eq("id", staffData.id)
+            .then(() => {});
         }
 
         const metaRole = (currentUser.app_metadata?.role as UserRole) || null;
@@ -288,12 +325,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             sessionStorage.setItem("user", JSON.stringify({ ...staffObj, restaurant_id: effectiveRestaurantId }));
             sessionStorage.setItem("role", effectiveRole || "");
+            sessionStorage.setItem("auth_user", JSON.stringify(currentUser));
           } catch {
             // ignore
           }
 
           // Stage 2: Parallelize role_permissions and restaurant details in ONE roundtrip
-          const [permRes, restRpcRes] = await Promise.all([
+          const [permRes, restRpcRes, directRestRes] = await Promise.all([
             effectiveRole
               ? supabase
                   .from("role_permissions")
@@ -302,6 +340,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               : Promise.resolve({ data: null, error: null }),
             effectiveRestaurantId
               ? supabase.rpc("get_my_restaurant")
+              : Promise.resolve({ data: null, error: null }),
+            effectiveRestaurantId
+              ? supabase
+                  .from("restaurants")
+                  .select("id, name, name_bn, slug, phone, email, address, city, logo_url, qr_code_url, currency, currency_symbol, default_vat_rate, service_charge_rate, is_active, status, subscription_plan")
+                  .eq("id", effectiveRestaurantId)
+                  .maybeSingle()
               : Promise.resolve({ data: null, error: null }),
           ]);
 
@@ -328,18 +373,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           let loadedRestaurant: Restaurant | null = null;
           if (!restRpcRes.error && restRpcRes.data) {
             loadedRestaurant = restRpcRes.data as Restaurant;
-          } else if (effectiveRestaurantId) {
-            // Direct table fallback
-            const { data: directRest } = await supabase
-              .from("restaurants")
-              .select("id, name, name_bn, slug, phone, email, address, city, logo_url, qr_code_url, currency, currency_symbol, default_vat_rate, service_charge_rate, is_active, status, subscription_plan")
-              .eq("id", effectiveRestaurantId)
-              .maybeSingle();
-
-            if (directRest) loadedRestaurant = directRest as Restaurant;
-          }
-
-          if (!loadedRestaurant) {
+          } else if (directRestRes.data) {
+            loadedRestaurant = directRestRes.data as Restaurant;
+          } else {
             const cachedRest = safeStorageGet<Restaurant>("current_restaurant");
             if (cachedRest) loadedRestaurant = cachedRest;
           }
@@ -365,7 +401,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             const { data: restOwner } = await supabase
               .from("restaurants")
-              .select("*")
+              .select("id, name, name_bn, slug, phone, email, address, city, logo_url, qr_code_url, currency, currency_symbol, default_vat_rate, service_charge_rate, is_active, status, subscription_plan")
               .ilike("email", userEmail)
               .order("created_at", { ascending: false })
               .limit(1)
@@ -379,6 +415,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               try {
                 sessionStorage.setItem("current_restaurant", JSON.stringify(rest));
                 sessionStorage.setItem("role", "owner");
+                sessionStorage.setItem("auth_user", JSON.stringify(currentUser));
               } catch {
                 // ignore
               }
@@ -433,7 +470,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
-    // Hard 3-second safety timeout: GUARANTEED to stop loading spinner and unblock UI
+    // Hard 3-second safety timeout: GUARANTEED to stop loading spinner on cold boot
     const safetyTimer = setTimeout(() => {
       if (mounted) {
         isBootDoneRef.current = true;
@@ -454,16 +491,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (bootSession?.user) {
           setSession(bootSession);
           setUser(bootSession.user);
+          loadedUserIdRef.current = bootSession.user.id;
+          try {
+            sessionStorage.setItem("auth_user", JSON.stringify(bootSession.user));
+          } catch {
+            // ignore
+          }
 
           try {
             await loadUserProfile(bootSession.user);
           } catch (profileErr) {
-            console.error("Failed to load user profile on boot:", profileErr);
+            console.error("Failed to revalidate user profile on boot:", profileErr);
           }
         } else {
-          // If no active session returned yet by GoTrue, check if we have cached profile in sessionStorage
-          const hasCached = safeStorageGet("user") || safeStorageGet("admin");
-          if (!hasCached) {
+          // If no active session returned by Supabase GoTrue
+          if (!initialCache.hasCachedData) {
             setSession(null);
             setUser(null);
             setProfile(null);
@@ -472,6 +514,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setRestaurantId(null);
             setRestaurant(null);
             setPermissions([]);
+            loadedUserIdRef.current = null;
+          } else {
+            // Stale cache detected with no valid Supabase session
+            safeClearAuthStorage();
+            setSession(null);
+            setUser(null);
+            setProfile(null);
+            setPlatformAdmin(null);
+            setRole(null);
+            setRestaurantId(null);
+            setRestaurant(null);
+            setPermissions([]);
+            loadedUserIdRef.current = null;
           }
         }
       })
@@ -501,23 +556,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRestaurantId(null);
         setRestaurant(null);
         setPermissions([]);
+        loadedUserIdRef.current = null;
         safeClearAuthStorage();
         isBootDoneRef.current = true;
         setLoading(false);
-      } else if (event === "SIGNED_IN" || event === "USER_UPDATED") {
-        setSession(newSession);
-        setUser(newSession.user);
-
-        // Avoid re-running profile lookup if already resolving on boot
-        try {
-          await loadUserProfile(newSession.user);
-        } finally {
-          isBootDoneRef.current = true;
-          setLoading(false);
-        }
       } else if (event === "TOKEN_REFRESHED") {
+        // Silently update token/session in background - NEVER trigger loading spinner
         setSession(newSession);
         setUser(newSession?.user ?? null);
+        if (newSession?.user) {
+          try {
+            sessionStorage.setItem("auth_user", JSON.stringify(newSession.user));
+          } catch {
+            // ignore
+          }
+        }
+      } else if (event === "SIGNED_IN" || event === "USER_UPDATED") {
+        const isSameUser = loadedUserIdRef.current && newSession?.user?.id === loadedUserIdRef.current;
+        if (isSameUser) {
+          // Window focus or redundant SIGNED_IN event for already authenticated user:
+          // Silently update session in background - DO NOT set loading to true and DO NOT block UI
+          setSession(newSession);
+          setUser(newSession.user);
+          try {
+            sessionStorage.setItem("auth_user", JSON.stringify(newSession.user));
+          } catch {
+            // ignore
+          }
+          return;
+        }
+
+        // New user or explicit sign-in
+        if (newSession?.user) {
+          loadedUserIdRef.current = newSession.user.id;
+          setSession(newSession);
+          setUser(newSession.user);
+          try {
+            sessionStorage.setItem("auth_user", JSON.stringify(newSession.user));
+          } catch {
+            // ignore
+          }
+
+          try {
+            await loadUserProfile(newSession.user);
+          } finally {
+            isBootDoneRef.current = true;
+            setLoading(false);
+          }
+        }
       }
     });
 
@@ -526,7 +612,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearTimeout(safetyTimer);
       subscription.unsubscribe();
     };
-  }, [loadUserProfile]);
+  }, [loadUserProfile, initialCache.hasCachedData]);
 
   // Sign In with automatic phone/email resolution (no lock contention)
   const signIn = async (identifier: string, password: string) => {
@@ -583,6 +669,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setUser(data.user);
       setSession(data.session);
+      loadedUserIdRef.current = data.user.id;
+      try {
+        sessionStorage.setItem("auth_user", JSON.stringify(data.user));
+      } catch {
+        // ignore
+      }
 
       const profileRes = await loadUserProfile(data.user);
       return { success: true, role: profileRes.role };
@@ -599,6 +691,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     try {
       safeClearAuthStorage();
+      loadedUserIdRef.current = null;
       setUser(null);
       setSession(null);
       setProfile(null);

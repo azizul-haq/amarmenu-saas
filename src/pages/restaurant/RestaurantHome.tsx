@@ -89,10 +89,32 @@ const PAYMENT_COLORS: Record<string, string> = {
   other: "#94A3B8", // Slate
 };
 
+// Helper to synchronously read cached dashboard data for zero-delay hydration
+const getCachedDashboardData = (restId: string | null): DashboardData | null => {
+  if (!restId || typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(`amarmenu_dashboard_cache_${restId}`);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
 const RestaurantHome: React.FC = () => {
   const { restaurant } = useAuth();
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const initialRestId =
+    restaurant?.id ||
+    (() => {
+      try {
+        const raw = sessionStorage.getItem("current_restaurant");
+        return raw ? JSON.parse(raw)?.id || "" : "";
+      } catch {
+        return "";
+      }
+    })();
+
+  const [data, setData] = useState<DashboardData | null>(() => getCachedDashboardData(initialRestId));
 
   useEffect(() => {
     if (restaurant?.id) {
@@ -102,7 +124,6 @@ const RestaurantHome: React.FC = () => {
 
   const loadDashboardData = async (restaurantId: string) => {
     try {
-      setLoading(true);
 
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -207,7 +228,7 @@ const RestaurantHome: React.FC = () => {
         paymentSplit.push({ name: "CASH", value: 1, color: PAYMENT_COLORS.cash });
       }
 
-      setData({
+      const newDashData = {
         pendingOrders: pendingOrdersRes.count || 0,
         todayOrders: todayOrders.length,
         todayRevenue,
@@ -215,15 +236,19 @@ const RestaurantHome: React.FC = () => {
         recentOrders: (recentOrdersRes.data as OrderSummary[]) || [],
         dailyTrends,
         paymentSplit,
-      });
+      };
+      setData(newDashData);
+      try {
+        sessionStorage.setItem(`amarmenu_dashboard_cache_${restaurantId}`, JSON.stringify(newDashData));
+      } catch {
+        // ignore
+      }
     } catch (err) {
       console.error("Failed to load restaurant dashboard:", err);
-    } finally {
-      setLoading(false);
     }
   };
 
-  if (loading || !data) {
+  if (!data) {
     return <Loading text="Preparing live dashboard insights..." />;
   }
 

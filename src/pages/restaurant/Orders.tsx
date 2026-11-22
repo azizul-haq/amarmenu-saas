@@ -47,9 +47,43 @@ import { formatDateTime, formatCurrency, playSound } from "../../utils/helpers";
 import { usePermissions } from "../../hooks/usePermissions";
 import { useAuth } from "../../context/AuthContext";
 
+// Helper to synchronously read cached orders from sessionStorage for zero-delay instant render
+const getCachedOrders = (restId: string | null): Order[] => {
+  if (!restId || typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(`amarmenu_orders_cache_${restId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
 const Orders: React.FC = () => {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    restaurant: authRestaurant,
+    restaurantId: authRestaurantId,
+    profile,
+    user,
+    role: userRole,
+    loading: authLoading,
+  } = useAuth();
+
+  const initialRestId =
+    authRestaurantId ||
+    authRestaurant?.id ||
+    (() => {
+      try {
+        const raw = sessionStorage.getItem("current_restaurant");
+        return raw ? JSON.parse(raw)?.id || "" : "";
+      } catch {
+        return "";
+      }
+    })();
+
+  const [orders, setOrders] = useState<Order[]>(() => getCachedOrders(initialRestId));
+  const [loading, setLoading] = useState<boolean>(() => orders.length === 0);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -72,23 +106,14 @@ const Orders: React.FC = () => {
     canVoidSettledBill,
   } = usePermissions();
   const previousOrdersRef = useRef<Order[]>([]);
-
-  const {
-    restaurant: authRestaurant,
-    restaurantId: authRestaurantId,
-    profile,
-    user,
-    role: userRole,
-    loading: authLoading,
-  } = useAuth();
   const canMarkServed =
     canConfirmOrder ||
     canSettleBill ||
     ["waiter", "owner", "manager", "cashier"].includes(userRole || "");
 
   useEffect(() => {
-    // Wait until AuthContext finishes restoring the session on refresh so queries carry the authenticated JWT token
-    if (authLoading) {
+    // Only block with loading if we do not yet have cached orders
+    if (authLoading && orders.length === 0) {
       setLoading(true);
       return;
     }
@@ -162,6 +187,13 @@ const Orders: React.FC = () => {
         setOrdersError(null);
         setLoading(false);
         clearTimeout(safetyTimer);
+        try {
+          if (targetRestaurantId && newOrders.length > 0) {
+            sessionStorage.setItem(`amarmenu_orders_cache_${targetRestaurantId}`, JSON.stringify(newOrders.slice(0, 100)));
+          }
+        } catch {
+          // ignore
+        }
       },
       (fetchErr) => {
         if (!isSubscribed) return;
@@ -360,7 +392,7 @@ const Orders: React.FC = () => {
     return `${hrs}h ${mins % 60}m ago`;
   };
 
-  if (loading) {
+  if (loading && orders.length === 0) {
     return <Loading text="Loading orders..." />;
   }
 

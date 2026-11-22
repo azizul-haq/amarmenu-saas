@@ -27,10 +27,34 @@ import { restaurantTableSchema } from "../../schemas/tableSchema";
 import { Card, Button, Input, Modal, Loading, Alert } from "../../components/ui";
 import { copyToClipboard } from "../../utils/helpers";
 
+// Helper to synchronously read cached tables for zero-delay hydration
+const getCachedTables = (restId: string | null): RestaurantTable[] => {
+  if (!restId || typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(`amarmenu_tables_cache_${restId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
 const TablesPage: React.FC = () => {
   const { restaurant, user, loading: authLoading } = useAuth();
-  const [tables, setTables] = useState<RestaurantTable[]>([]);
-  const [loading, setLoading] = useState(true);
+  const initialRestId =
+    restaurant?.id ||
+    (() => {
+      try {
+        const raw = sessionStorage.getItem("current_restaurant");
+        return raw ? JSON.parse(raw)?.id || "" : "";
+      } catch {
+        return "";
+      }
+    })();
+
+  const [tables, setTables] = useState<RestaurantTable[]>(() => getCachedTables(initialRestId));
+  const [loading, setLoading] = useState<boolean>(() => tables.length === 0);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
@@ -61,16 +85,25 @@ const TablesPage: React.FC = () => {
 
   // Real-time subscription to restaurant tables
   useEffect(() => {
-    if (authLoading) {
+    if (authLoading && tables.length === 0) {
       setLoading(true);
       return;
     }
     if (!restaurant?.id || !user) return;
 
-    setLoading(true);
+    if (tables.length === 0) {
+      setLoading(true);
+    }
     const subscription = subscribeToTables(restaurant.id, (data) => {
       setTables(data);
       setLoading(false);
+      try {
+        if (restaurant.id && data.length > 0) {
+          sessionStorage.setItem(`amarmenu_tables_cache_${restaurant.id}`, JSON.stringify(data));
+        }
+      } catch {
+        // ignore
+      }
     });
 
     return () => {
@@ -289,7 +322,7 @@ const TablesPage: React.FC = () => {
     }
   };
 
-  if (loading) {
+  if (loading && tables.length === 0) {
     return <Loading text="Loading tables & QR codes..." />;
   }
 

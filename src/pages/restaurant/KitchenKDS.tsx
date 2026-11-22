@@ -24,6 +24,19 @@ import { KOTReceipt } from "../../components/restaurant/KOTReceipt";
 import { Loading, Button } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
 
+// Helper to synchronously read cached kitchen orders for zero-delay hydration
+const getCachedKitchenOrders = (restId: string | null): Order[] => {
+  if (!restId || typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(`amarmenu_kds_cache_${restId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
 const KitchenKDS: React.FC = () => {
   const {
     restaurant: authRestaurant,
@@ -31,8 +44,21 @@ const KitchenKDS: React.FC = () => {
     user,
     loading: authLoading,
   } = useAuth();
-  const [kitchenOrders, setKitchenOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  const initialRestId =
+    authRestaurantId ||
+    authRestaurant?.id ||
+    (() => {
+      try {
+        const raw = sessionStorage.getItem("current_restaurant");
+        return raw ? JSON.parse(raw)?.id || "" : "";
+      } catch {
+        return "";
+      }
+    })();
+
+  const [kitchenOrders, setKitchenOrders] = useState<Order[]>(() => getCachedKitchenOrders(initialRestId));
+  const [loading, setLoading] = useState<boolean>(() => kitchenOrders.length === 0);
   const [restaurantName, setRestaurantName] = useState(authRestaurant?.name || "Kitchen");
   const [orderTypeFilter, setOrderTypeFilter] = useState<"all" | "table" | "counter">("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -43,7 +69,7 @@ const KitchenKDS: React.FC = () => {
   const prevOrdersCountRef = useRef<number>(0);
 
   useEffect(() => {
-    if (authLoading) {
+    if (authLoading && kitchenOrders.length === 0) {
       setLoading(true);
       return;
     }
@@ -82,6 +108,13 @@ const KitchenKDS: React.FC = () => {
 
       setKitchenOrders(orders);
       setLoading(false);
+      try {
+        if (targetRestaurantId && orders.length > 0) {
+          sessionStorage.setItem(`amarmenu_kds_cache_${targetRestaurantId}`, JSON.stringify(orders.slice(0, 50)));
+        }
+      } catch {
+        // ignore
+      }
     });
 
     return () => {
@@ -142,7 +175,7 @@ const KitchenKDS: React.FC = () => {
     return Math.max(0, diff);
   };
 
-  if (loading) {
+  if (loading && kitchenOrders.length === 0) {
     return <Loading text="Loading kitchen display..." />;
   }
 

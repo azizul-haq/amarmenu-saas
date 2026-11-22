@@ -170,7 +170,7 @@ const RestaurantDashboard: React.FC = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [restaurant?.id]);
+  }, [restaurant?.id, user?.id]);
 
   const handleLogout = async () => {
     await signOut();
@@ -262,11 +262,27 @@ const RestaurantDashboard: React.FC = () => {
     },
   ];
 
+  const normRole = (role || "").toLowerCase().trim();
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
-        if (role === "super_admin") return true;
+        if (normRole === "super_admin" || normRole === "owner") return true;
+
+        // Role-based guaranteed visibility fallbacks so sidebar is never blank on refresh
+        if (item.path === "/restaurant/orders" && ["waiter", "cashier", "manager"].includes(normRole)) {
+          return true;
+        }
+        if (item.path === "/restaurant/tables" && ["waiter", "manager"].includes(normRole)) {
+          return true;
+        }
+        if (item.path === "/restaurant/kitchen" && ["kitchen", "manager"].includes(normRole)) {
+          return true;
+        }
+        if (item.path === "/restaurant/shifts" && ["cashier", "manager"].includes(normRole)) {
+          return true;
+        }
+
         if (item.permission && !hasPermission(item.permission)) return false;
         if (
           item.anyPermissions &&

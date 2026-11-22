@@ -28,7 +28,7 @@ import { Card, Button, Input, Modal, Loading, Alert } from "../../components/ui"
 import { copyToClipboard } from "../../utils/helpers";
 
 const TablesPage: React.FC = () => {
-  const { restaurant } = useAuth();
+  const { restaurant, user, loading: authLoading } = useAuth();
   const [tables, setTables] = useState<RestaurantTable[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -61,7 +61,11 @@ const TablesPage: React.FC = () => {
 
   // Real-time subscription to restaurant tables
   useEffect(() => {
-    if (!restaurant?.id) return;
+    if (authLoading) {
+      setLoading(true);
+      return;
+    }
+    if (!restaurant?.id || !user) return;
 
     setLoading(true);
     const subscription = subscribeToTables(restaurant.id, (data) => {
@@ -72,7 +76,7 @@ const TablesPage: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [restaurant?.id]);
+  }, [restaurant?.id, user?.id, authLoading]);
 
   const getTableUrl = (qrToken: string) => {
     const origin = window.location.origin;

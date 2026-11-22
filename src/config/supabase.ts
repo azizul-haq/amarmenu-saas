@@ -1,16 +1,37 @@
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config";
 
-// Ensure each browser tab has a unique session storage key so multi-tab / incognito sessions never overwrite each other
-const getTabStorageKey = (): string => {
+// Cached tab storage key in memory for this module instance
+let cachedTabKey: string | null = null;
+
+// Ensure each browser tab has a unique session storage key so multi-tab / incognito sessions never overwrite each other,
+// while strictly persisting across F5 page reloads in the same tab.
+export const getTabStorageKey = (): string => {
+  if (cachedTabKey) return cachedTabKey;
   if (typeof window === "undefined") return "amarmenu_auth_default";
   try {
+    // 1. Strictly read existing tab ID from sessionStorage FIRST (persists across F5 in same tab)
     let tabId = window.sessionStorage.getItem("amarmenu_tab_id");
-    if (!tabId) {
-      tabId = "tab_" + Math.random().toString(36).substring(2, 10);
+
+    // 2. Secondary fallback: check window.name if sessionStorage was briefly unavailable
+    if (!tabId && typeof window.name === "string" && window.name.startsWith("amarmenu_tab_")) {
+      tabId = window.name.replace("amarmenu_tab_", "");
       window.sessionStorage.setItem("amarmenu_tab_id", tabId);
     }
-    return `amarmenu_auth_${tabId}`;
+
+    // 3. Only generate a fresh tabId if none exists (completely new tab)
+    if (!tabId || tabId.trim() === "") {
+      tabId = "tab_" + Math.random().toString(36).substring(2, 10);
+      window.sessionStorage.setItem("amarmenu_tab_id", tabId);
+      try {
+        window.name = `amarmenu_tab_${tabId}`;
+      } catch {
+        // ignore
+      }
+    }
+
+    cachedTabKey = `amarmenu_auth_${tabId}`;
+    return cachedTabKey;
   } catch {
     return "amarmenu_auth_fallback";
   }

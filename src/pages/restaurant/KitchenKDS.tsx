@@ -25,7 +25,12 @@ import { Loading, Button } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
 
 const KitchenKDS: React.FC = () => {
-  const { restaurant: authRestaurant, restaurantId: authRestaurantId } = useAuth();
+  const {
+    restaurant: authRestaurant,
+    restaurantId: authRestaurantId,
+    user,
+    loading: authLoading,
+  } = useAuth();
   const [kitchenOrders, setKitchenOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [restaurantName, setRestaurantName] = useState(authRestaurant?.name || "Kitchen");
@@ -38,6 +43,11 @@ const KitchenKDS: React.FC = () => {
   const prevOrdersCountRef = useRef<number>(0);
 
   useEffect(() => {
+    if (authLoading) {
+      setLoading(true);
+      return;
+    }
+
     let targetRestaurantId = authRestaurantId || authRestaurant?.id || "";
     let targetName = authRestaurant?.name || "";
 
@@ -54,7 +64,7 @@ const KitchenKDS: React.FC = () => {
       }
     }
 
-    if (!targetRestaurantId) {
+    if (!targetRestaurantId || !user) {
       setLoading(false);
       return;
     }
@@ -77,7 +87,7 @@ const KitchenKDS: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [soundEnabled, authRestaurantId, authRestaurant?.id]);
+  }, [soundEnabled, authLoading, user?.id, authRestaurantId, authRestaurant?.id]);
 
   // Fullscreen mode handler
   const toggleFullscreen = () => {

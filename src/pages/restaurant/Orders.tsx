@@ -73,13 +73,26 @@ const Orders: React.FC = () => {
   } = usePermissions();
   const previousOrdersRef = useRef<Order[]>([]);
 
-  const { restaurant: authRestaurant, restaurantId: authRestaurantId, profile, user, role: userRole } = useAuth();
+  const {
+    restaurant: authRestaurant,
+    restaurantId: authRestaurantId,
+    profile,
+    user,
+    role: userRole,
+    loading: authLoading,
+  } = useAuth();
   const canMarkServed =
     canConfirmOrder ||
     canSettleBill ||
     ["waiter", "owner", "manager", "cashier"].includes(userRole || "");
 
   useEffect(() => {
+    // Wait until AuthContext finishes restoring the session on refresh so queries carry the authenticated JWT token
+    if (authLoading) {
+      setLoading(true);
+      return;
+    }
+
     let targetRestaurantId = authRestaurantId || authRestaurant?.id || "";
     let targetName = authRestaurant?.name || "";
 
@@ -96,7 +109,8 @@ const Orders: React.FC = () => {
       }
     }
 
-    if (!targetRestaurantId) {
+    // Require both restaurantId and authenticated user so we don't query RLS orders table as anon
+    if (!targetRestaurantId || !user) {
       const timer = setTimeout(() => {
         setLoading(false);
       }, 3000);
@@ -163,7 +177,7 @@ const Orders: React.FC = () => {
       clearTimeout(safetyTimer);
       subscription.unsubscribe();
     };
-  }, [authRestaurantId, authRestaurant?.id]);
+  }, [authLoading, user?.id, authRestaurantId, authRestaurant?.id]);
 
   // Live search matcher
   const matchesSearch = (order: Order, q: string) => {

@@ -5,6 +5,54 @@ import type { Restaurant, RestaurantStaff, PlatformAdmin } from "../config/supab
 
 export type UserRole = "super_admin" | "owner" | "manager" | "cashier" | "kitchen" | "waiter" | null;
 
+export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
+  owner: [
+    "view_reports",
+    "edit_menu",
+    "delete_menu",
+    "toggle_availability",
+    "confirm_order",
+    "update_kitchen_status",
+    "settle_bill",
+    "apply_discount",
+    "void_order",
+    "void_settled_bill",
+    "manage_shifts",
+    "manage_staff",
+    "change_settings",
+    "manage_subscription",
+    "view_financials",
+    "view_order_financials",
+  ],
+  manager: [
+    "view_reports",
+    "edit_menu",
+    "toggle_availability",
+    "confirm_order",
+    "update_kitchen_status",
+    "settle_bill",
+    "apply_discount",
+    "void_order",
+    "manage_shifts",
+    "view_financials",
+    "view_order_financials",
+  ],
+  cashier: [
+    "confirm_order",
+    "settle_bill",
+    "manage_shifts",
+    "view_order_financials",
+  ],
+  kitchen: [
+    "update_kitchen_status",
+    "toggle_availability",
+  ],
+  waiter: [
+    "confirm_order",
+    "toggle_availability",
+  ],
+};
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
@@ -50,10 +98,12 @@ function safeClearAuthStorage() {
     sessionStorage.removeItem("admin");
     sessionStorage.removeItem("current_restaurant");
     sessionStorage.removeItem("role");
+    sessionStorage.removeItem("permissions");
     localStorage.removeItem("user");
     localStorage.removeItem("admin");
     localStorage.removeItem("current_restaurant");
     localStorage.removeItem("role");
+    localStorage.removeItem("permissions");
   } catch {
     // ignore
   }
@@ -64,10 +114,19 @@ const getStoredAuthState = () => {
   const parsedUser = safeStorageGet<RestaurantStaff>("user");
   const parsedAdmin = safeStorageGet<PlatformAdmin>("admin");
   const parsedRest = safeStorageGet<Restaurant>("current_restaurant");
+  const rawRole = safeStorageGet<string>("role") || parsedUser?.role || "";
 
   let initialRole: UserRole = null;
   if (parsedAdmin) initialRole = "super_admin";
-  else if (parsedUser?.role) initialRole = parsedUser.role as UserRole;
+  else if (rawRole) initialRole = rawRole.toLowerCase().trim() as UserRole;
+
+  const cachedPerms = safeStorageGet<string[]>("permissions");
+  const initialPermissions: string[] =
+    cachedPerms && Array.isArray(cachedPerms) && cachedPerms.length > 0
+      ? cachedPerms
+      : initialRole && DEFAULT_ROLE_PERMISSIONS[initialRole]
+      ? DEFAULT_ROLE_PERMISSIONS[initialRole]
+      : [];
 
   return {
     profile: parsedUser,
@@ -75,6 +134,7 @@ const getStoredAuthState = () => {
     role: initialRole,
     restaurant: parsedRest,
     restaurantId: (parsedRest?.id || parsedUser?.restaurant_id || null) as string | null,
+    permissions: initialPermissions,
   };
 };
 
@@ -87,7 +147,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [role, setRole] = useState<UserRole>(initialCache.role);
   const [restaurantId, setRestaurantId] = useState<string | null>(initialCache.restaurantId);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(initialCache.restaurant);
-  const [permissions, setPermissions] = useState<string[]>([]);
+  const [permissions, setPermissions] = useState<string[]>(initialCache.permissions);
   const [loading, setLoading] = useState<boolean>(true);
 
   const isBootDoneRef = useRef(false);
@@ -212,7 +272,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const metaRestaurantId = (currentUser.app_metadata?.restaurant_id as string) || null;
 
       if (staffData || (metaRole && metaRestaurantId)) {
-        const effectiveRole = (staffData?.role || metaRole) as UserRole;
+        const rawRole = staffData?.role || metaRole;
+        const effectiveRole = (rawRole ? String(rawRole).toLowerCase().trim() : null) as UserRole;
         const effectiveRestaurantId = staffData?.restaurant_id || metaRestaurantId;
 
         const staffObj = staffData || ({
@@ -240,17 +301,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // ignore
         }
 
-        // Fetch dynamic permissions for this role from the database
+        // Fetch dynamic permissions for this role from the database with reliable fallback
         if (effectiveRole) {
           try {
-            const { data: permData } = await supabase
+            const { data: permData, error: permErr } = await supabase
               .from("role_permissions")
               .select("permission")
               .eq("role", effectiveRole);
-            const rolePerms = (permData || []).map((p: { permission: string }) => p.permission);
-            setPermissions(rolePerms);
+
+            if (!permErr && permData && permData.length > 0) {
+              const rolePerms = permData.map((p: { permission: string }) => p.permission);
+              setPermissions(rolePerms);
+              try {
+                sessionStorage.setItem("permissions", JSON.stringify(rolePerms));
+              } catch {
+                // ignore
+              }
+            } else if (DEFAULT_ROLE_PERMISSIONS[effectiveRole]) {
+              const fallbackPerms = DEFAULT_ROLE_PERMISSIONS[effectiveRole];
+              setPermissions(fallbackPerms);
+              try {
+                sessionStorage.setItem("permissions", JSON.stringify(fallbackPerms));
+              } catch {
+                // ignore
+              }
+            }
           } catch (pErr) {
             console.warn("Failed fetching role permissions:", pErr);
+            if (DEFAULT_ROLE_PERMISSIONS[effectiveRole]) {
+              const fallbackPerms = DEFAULT_ROLE_PERMISSIONS[effectiveRole];
+              setPermissions(fallbackPerms);
+              try {
+                sessionStorage.setItem("permissions", JSON.stringify(fallbackPerms));
+              } catch {
+                // ignore
+              }
+            }
           }
         }
 
@@ -351,8 +437,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const hasPermission = useCallback(
     (permission: string): boolean => {
-      if (role === "super_admin") return true;
-      return permissions.includes(permission);
+      const normRole = (role || "").toLowerCase().trim();
+      if (normRole === "super_admin" || normRole === "owner") return true;
+      if (permissions.includes(permission)) return true;
+      if (normRole && DEFAULT_ROLE_PERMISSIONS[normRole]?.includes(permission)) {
+        return true;
+      }
+      return false;
     },
     [role, permissions]
   );
@@ -395,15 +486,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.error("Failed to load user profile on boot:", profileErr);
           }
         } else {
-          // No active session found - immediately clear loading so login/landing load instantly
-          setSession(null);
-          setUser(null);
-          setProfile(null);
-          setPlatformAdmin(null);
-          setRole(null);
-          setRestaurantId(null);
-          setRestaurant(null);
-          setPermissions([]);
+          // If no active session returned yet by GoTrue, check if we have cached profile in sessionStorage
+          const hasCached = safeStorageGet("user") || safeStorageGet("admin");
+          if (!hasCached) {
+            setSession(null);
+            setUser(null);
+            setProfile(null);
+            setPlatformAdmin(null);
+            setRole(null);
+            setRestaurantId(null);
+            setRestaurant(null);
+            setPermissions([]);
+          }
         }
       })
       .catch((err) => {

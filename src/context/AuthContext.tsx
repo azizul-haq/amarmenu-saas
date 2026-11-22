@@ -72,20 +72,19 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Safely parse JSON strictly from sessionStorage (tab-isolated); purges corrupted items on error
+// Safely parse JSON or plain string values strictly from sessionStorage (tab-isolated)
 function safeStorageGet<T>(key: string): T | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = sessionStorage.getItem(key);
     if (!raw || raw === "undefined" || raw === "null") return null;
-    return JSON.parse(raw) as T;
-  } catch (err) {
-    console.warn(`Purging corrupted storage item for "${key}":`, err);
     try {
-      sessionStorage.removeItem(key);
+      return JSON.parse(raw) as T;
     } catch {
-      // ignore
+      // If parsing fails, but it is a plain string (like role "manager", "owner"), return raw safely without purging
+      return raw as unknown as T;
     }
+  } catch {
     return null;
   }
 }
@@ -116,7 +115,7 @@ const getStoredAuthState = () => {
   const parsedUser = safeStorageGet<RestaurantStaff>("user");
   const parsedAdmin = safeStorageGet<PlatformAdmin>("admin");
   const parsedRest = safeStorageGet<Restaurant>("current_restaurant");
-  const rawRole = safeStorageGet<string>("role") || parsedUser?.role || "";
+  const rawRole = (sessionStorage.getItem("role") || safeStorageGet<string>("role") || parsedUser?.role || "").trim();
 
   let initialRole: UserRole = null;
   if (parsedAdmin) initialRole = "super_admin";
@@ -130,40 +129,32 @@ const getStoredAuthState = () => {
       ? DEFAULT_ROLE_PERMISSIONS[initialRole]
       : [];
 
+  let initialSession: Session | null = null;
   let initialUser: User | null = safeStorageGet<User>("auth_user");
-  if (!initialUser) {
-    try {
-      const rawSession = sessionStorage.getItem(getTabStorageKey());
-      if (rawSession) {
-        const parsed = JSON.parse(rawSession);
-        if (parsed?.user) initialUser = parsed.user;
+  try {
+    const tabKey = getTabStorageKey();
+    const rawSession = sessionStorage.getItem(tabKey);
+    if (rawSession) {
+      const parsed = JSON.parse(rawSession);
+      if (parsed?.access_token) {
+        initialSession = parsed as Session;
+        if (parsed?.user) initialUser = parsed.user as User;
       }
-    } catch {
-      // ignore
     }
-  }
-
-  // If we have cached profile/admin but no auth_user object yet, construct a valid User stub
-  if (!initialUser && (parsedUser || parsedAdmin)) {
-    const fallbackId = parsedUser?.auth_user_id || parsedUser?.id || parsedAdmin?.auth_user_id || parsedAdmin?.id || "cached_user";
-    const fallbackEmail = parsedUser?.email || parsedAdmin?.email || "cached@amarmenu.internal";
-    initialUser = {
-      id: fallbackId,
-      app_metadata: { role: initialRole, restaurant_id: parsedRest?.id || parsedUser?.restaurant_id },
-      user_metadata: { full_name: parsedUser?.full_name || parsedAdmin?.full_name },
-      aud: "authenticated",
-      created_at: parsedUser?.created_at || new Date().toISOString(),
-      email: fallbackEmail,
-    } as unknown as User;
+  } catch {
+    // ignore
   }
 
   const hasCachedData = Boolean(
-    (parsedAdmin && initialRole === "super_admin") ||
-    (parsedUser && initialRole && (parsedRest || parsedUser.restaurant_id))
+    initialSession &&
+    initialUser &&
+    ((parsedAdmin && initialRole === "super_admin") ||
+     (parsedUser && initialRole && (parsedRest || parsedUser.restaurant_id)))
   );
 
   return {
     user: initialUser,
+    session: initialSession,
     profile: parsedUser,
     admin: parsedAdmin,
     role: initialRole,
@@ -177,7 +168,7 @@ const getStoredAuthState = () => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const initialCache = getStoredAuthState();
   const [user, setUser] = useState<User | null>(initialCache.user);
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<Session | null>(initialCache.session);
   const [profile, setProfile] = useState<RestaurantStaff | null>(initialCache.profile);
   const [platformAdmin, setPlatformAdmin] = useState<PlatformAdmin | null>(initialCache.admin);
   const [role, setRole] = useState<UserRole>(initialCache.role);

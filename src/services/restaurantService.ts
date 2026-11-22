@@ -20,8 +20,21 @@ export const subscribeToOrders = (
   callback: (orders: Order[]) => void,
   onError?: (error: Error) => void
 ) => {
+  let isCancelled = false;
+
   const fetchOrders = async () => {
     try {
+      if (isCancelled) return;
+
+      // Ensure active authenticated Supabase session before querying RLS orders table
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData?.session) {
+        console.warn("fetchOrders: active Supabase session not ready yet, waiting 150ms before query...");
+        await new Promise((r) => setTimeout(r, 150));
+      }
+
+      if (isCancelled) return;
+
       const { data, error } = await supabase
         .from("orders")
         .select("*")
@@ -29,13 +42,16 @@ export const subscribeToOrders = (
         .order("created_at", { ascending: false })
         .limit(200);
 
+      if (isCancelled) return;
+
       if (error) {
-        console.error("fetchOrders error:", error);
+        console.error("fetchOrders Supabase error:", error);
         onError?.(new Error(error.message));
       } else {
         callback(data || []);
       }
     } catch (err: unknown) {
+      if (isCancelled) return;
       console.error("fetchOrders exception:", err);
       onError?.(err instanceof Error ? err : new Error("Failed to fetch orders"));
     }
@@ -43,8 +59,9 @@ export const subscribeToOrders = (
 
   fetchOrders();
 
+  const channelName = `restaurant-orders-${restaurantId}-${Math.random().toString(36).substring(2, 7)}`;
   const subscription = supabase
-    .channel(`restaurant-orders-${restaurantId}`)
+    .channel(channelName)
     .on(
       "postgres_changes",
       {
@@ -54,13 +71,14 @@ export const subscribeToOrders = (
         filter: `restaurant_id=eq.${restaurantId}`,
       },
       () => {
-        fetchOrders();
+        if (!isCancelled) fetchOrders();
       }
     )
     .subscribe();
 
   return {
     unsubscribe: () => {
+      isCancelled = true;
       supabase.removeChannel(subscription);
     },
   };
@@ -72,8 +90,21 @@ export const subscribeToKitchenOrders = (
   callback: (orders: Order[]) => void,
   onError?: (error: Error) => void
 ) => {
+  let isCancelled = false;
+
   const fetchKitchenOrders = async () => {
     try {
+      if (isCancelled) return;
+
+      // Ensure active authenticated Supabase session before querying RLS orders table
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData?.session) {
+        console.warn("fetchKitchenOrders: active Supabase session not ready yet, waiting 150ms before query...");
+        await new Promise((r) => setTimeout(r, 150));
+      }
+
+      if (isCancelled) return;
+
       const { data, error } = await supabase
         .from("orders")
         .select(`
@@ -98,8 +129,10 @@ export const subscribeToKitchenOrders = (
         .order("created_at", { ascending: true })
         .limit(100);
 
+      if (isCancelled) return;
+
       if (error) {
-        console.error("fetchKitchenOrders error:", error);
+        console.error("fetchKitchenOrders Supabase error:", error);
         onError?.(new Error(error.message));
       } else if (data) {
         // Strip financial properties from order and items
@@ -128,6 +161,7 @@ export const subscribeToKitchenOrders = (
         callback(sanitized as Order[]);
       }
     } catch (err: unknown) {
+      if (isCancelled) return;
       console.error("fetchKitchenOrders exception:", err);
       onError?.(err instanceof Error ? err : new Error("Failed to fetch kitchen orders"));
     }
@@ -135,8 +169,9 @@ export const subscribeToKitchenOrders = (
 
   fetchKitchenOrders();
 
+  const channelName = `restaurant-kitchen-${restaurantId}-${Math.random().toString(36).substring(2, 7)}`;
   const subscription = supabase
-    .channel(`restaurant-kitchen-${restaurantId}`)
+    .channel(channelName)
     .on(
       "postgres_changes",
       {
@@ -146,13 +181,14 @@ export const subscribeToKitchenOrders = (
         filter: `restaurant_id=eq.${restaurantId}`,
       },
       () => {
-        fetchKitchenOrders();
+        if (!isCancelled) fetchKitchenOrders();
       }
     )
     .subscribe();
 
   return {
     unsubscribe: () => {
+      isCancelled = true;
       supabase.removeChannel(subscription);
     },
   };

@@ -66,6 +66,7 @@ const Orders: React.FC = () => {
     restaurantId: authRestaurantId,
     profile,
     user,
+    session,
     role: userRole,
     loading: authLoading,
   } = useAuth();
@@ -112,9 +113,9 @@ const Orders: React.FC = () => {
     ["waiter", "owner", "manager", "cashier"].includes(userRole || "");
 
   useEffect(() => {
-    // Only block with loading if we do not yet have cached orders
-    if (authLoading && orders.length === 0) {
-      setLoading(true);
+    // If auth is still loading, wait before querying so we don't query with unauthenticated state
+    if (authLoading) {
+      if (orders.length === 0) setLoading(true);
       return;
     }
 
@@ -134,12 +135,10 @@ const Orders: React.FC = () => {
       }
     }
 
-    // Require both restaurantId and authenticated user so we don't query RLS orders table as anon
+    // Require both restaurantId and authenticated session so we don't query RLS orders table as anon
     if (!targetRestaurantId || !user) {
-      const timer = setTimeout(() => {
-        setLoading(false);
-      }, 3000);
-      return () => clearTimeout(timer);
+      setLoading(false);
+      return;
     }
 
     if (targetName) setRestaurantName(targetName);
@@ -209,7 +208,7 @@ const Orders: React.FC = () => {
       clearTimeout(safetyTimer);
       subscription.unsubscribe();
     };
-  }, [authLoading, user?.id, authRestaurantId, authRestaurant?.id]);
+  }, [authLoading, user?.id, session?.access_token, authRestaurantId, authRestaurant?.id]);
 
   // Live search matcher
   const matchesSearch = (order: Order, q: string) => {

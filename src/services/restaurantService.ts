@@ -780,5 +780,43 @@ export const getOrderItemsNormalized = async (
   return data as OrderItemRecord[];
 };
 
+// Update or remove restaurant official logo via secure RPC with fallback
+export const updateRestaurantLogo = async (
+  restaurantId: string,
+  logoUrl: string | null
+): Promise<{ success: boolean; error?: string; logo_url?: string | null }> => {
+  try {
+    const { data, error } = await supabase.rpc("update_restaurant_logo", {
+      p_restaurant_id: restaurantId,
+      p_logo_url: logoUrl,
+    });
+
+    if (error) {
+      // Fallback to direct table update if RPC fails
+      const { error: tableError } = await supabase
+        .from("restaurants")
+        .update({
+          logo_url: logoUrl,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", restaurantId);
+
+      if (tableError) {
+        return { success: false, error: tableError.message || error.message };
+      }
+      return { success: true, logo_url: logoUrl };
+    }
+
+    return {
+      success: true,
+      logo_url: (data as any)?.logo_url ?? logoUrl,
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to update restaurant logo";
+    return { success: false, error: msg };
+  }
+};
+
+
 
 

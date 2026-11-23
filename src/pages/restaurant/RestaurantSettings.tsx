@@ -14,6 +14,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../../config/supabase";
 import { useAuth } from "../../context/AuthContext";
 import type { Restaurant } from "../../config/supabase";
+import { updateRestaurantLogo } from "../../services/restaurantService";
 
 const RestaurantSettings: React.FC = () => {
   const { restaurant: authRestaurant, restaurantId, refreshProfile } = useAuth();
@@ -138,16 +139,10 @@ const RestaurantSettings: React.FC = () => {
 
       const publicUrl = urlData.publicUrl;
 
-      const { error: updateError } = await supabase
-        .from("restaurants")
-        .update({
-          logo_url: publicUrl,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", restaurant.id);
-
-      if (updateError) {
-        throw new Error(updateError.message || "Failed to update restaurant logo URL");
+      // Update logo via secure RPC (with fallback to direct table update)
+      const updateRes = await updateRestaurantLogo(restaurant.id, publicUrl);
+      if (!updateRes.success) {
+        throw new Error(updateRes.error || "Failed to update restaurant logo URL");
       }
 
       setRestaurant((prev) => (prev ? { ...prev, logo_url: publicUrl } : prev));
@@ -184,16 +179,10 @@ const RestaurantSettings: React.FC = () => {
         }
       }
 
-      const { error: updateError } = await supabase
-        .from("restaurants")
-        .update({
-          logo_url: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", restaurant.id);
-
-      if (updateError) {
-        throw new Error(updateError.message || "Failed to remove logo");
+      // Remove logo via secure RPC (with fallback to direct table update)
+      const updateRes = await updateRestaurantLogo(restaurant.id, null);
+      if (!updateRes.success) {
+        throw new Error(updateRes.error || "Failed to remove logo");
       }
 
       setRestaurant((prev) => (prev ? { ...prev, logo_url: undefined } : prev));

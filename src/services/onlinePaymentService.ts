@@ -222,3 +222,85 @@ export const generateMockTrxId = (gateway: OnlineGateway): string => {
       return `TRX${stamp}${rand}`;
   }
 };
+
+export interface CustomerSandboxPaymentResponse {
+  success: boolean;
+  order_id: string;
+  order_number: string;
+  invoice_number: string;
+  transaction_id: string;
+  payment_id?: string;
+  method: string;
+  gateway?: string;
+  amount: number;
+  subtotal: number;
+  tax: number;
+  discount: number;
+  table_number?: string | null;
+  table_released: boolean;
+  settled_at: string;
+  restaurant?: {
+    name: string;
+    name_bn?: string;
+    phone?: string;
+    address?: string;
+    vat_bin_no?: string;
+  };
+  is_duplicate?: boolean;
+  message?: string;
+}
+
+/**
+ * Direct atomic settlement RPC for customer online sandbox payment (bKash, Nagad, SSLCommerz).
+ * Callable by anon & authenticated customers directly from the Order Tracker.
+ */
+export const processCustomerSandboxPayment = async (
+  orderId: string,
+  method: OnlineGateway | string,
+  senderNumber?: string
+): Promise<{ success: boolean; data?: CustomerSandboxPaymentResponse; error?: string }> => {
+  try {
+    const { data, error } = await supabase.rpc("process_customer_sandbox_payment", {
+      p_order_id: orderId,
+      p_method: method,
+      p_sender_number: senderNumber || null,
+    });
+
+    if (error) {
+      console.error("processCustomerSandboxPayment error:", error);
+      return { success: false, error: error.message };
+    }
+
+    return {
+      success: true,
+      data: data as CustomerSandboxPaymentResponse,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Online sandbox payment failed";
+    return { success: false, error: message };
+  }
+};
+
+/**
+ * Signals customer's preference to pay cash at counter/waiter.
+ */
+export const selectCustomerCashPayment = async (
+  orderId: string
+): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const { error } = await supabase.rpc("select_customer_cash_payment", {
+      p_order_id: orderId,
+    });
+
+    if (error) {
+      console.error("selectCustomerCashPayment error:", error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to select cash payment";
+    return { success: false, error: message };
+  }
+};
+

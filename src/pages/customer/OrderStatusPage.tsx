@@ -16,8 +16,12 @@ import {
   CreditCard,
   Printer,
   Sparkles,
+  Banknote,
+  CheckCircle2,
+  Smartphone,
 } from "lucide-react";
 import { getCustomerOrder } from "../../services/restaurantService";
+import { selectCustomerCashPayment } from "../../services/onlinePaymentService";
 import type { Order, OrderItem } from "../../config/supabase";
 import { formatCurrency, formatDateTime, copyToClipboard } from "../../utils/helpers";
 import { Card, Button, Loading } from "../../components/ui";
@@ -43,9 +47,8 @@ const OrderStatusPage: React.FC = () => {
   const [lang, setLang] = useState<"en" | "bn">("en");
   const [copied, setCopied] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-
-  // In production builds, the simulator UI is hidden; live gateway redirect will take its place in future chunks
-  const isSimulatorEnabled = !import.meta.env.PROD || import.meta.env.VITE_ENABLE_PAYMENT_SIMULATOR === "true";
+  const [cashSelected, setCashSelected] = useState<boolean>(false);
+  const [cashSelecting, setCashSelecting] = useState<boolean>(false);
 
   const fetchStatus = async () => {
     if (!orderId) return;
@@ -54,11 +57,23 @@ const OrderStatusPage: React.FC = () => {
     if (res.found && res.order && res.restaurant) {
       setOrder(res.order);
       setRestaurant(res.restaurant);
+      if (res.order.payment_method === "cash") {
+        setCashSelected(true);
+      }
       setError(null);
     } else {
       setError(res.error || "Order not found");
     }
     setLoading(false);
+  };
+
+  const handleSelectCash = async () => {
+    if (!orderId) return;
+    setCashSelecting(true);
+    await selectCustomerCashPayment(orderId);
+    setCashSelected(true);
+    setCashSelecting(false);
+    fetchStatus();
   };
 
   useEffect(() => {
@@ -419,7 +434,7 @@ const OrderStatusPage: React.FC = () => {
 
         {/* Online Payment / Invoice Status Section */}
         {order.payment_status === "paid" ? (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 shadow-sm space-y-3">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 shadow-sm space-y-3 animate-fadeIn">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-emerald-600" />
@@ -442,7 +457,9 @@ const OrderStatusPage: React.FC = () => {
               {order.payment_transaction_id && (
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500 font-medium">{lang === "bn" ? "ট্রানজেকশন আইডি:" : "TrxID:"}</span>
-                  <span className="font-mono font-medium text-gray-700">{order.payment_transaction_id}</span>
+                  <span className="font-mono font-bold text-gray-800 bg-gray-100 px-1.5 py-0.2 rounded">
+                    {order.payment_transaction_id}
+                  </span>
                 </div>
               )}
               <div className="flex justify-between items-center">
@@ -453,62 +470,171 @@ const OrderStatusPage: React.FC = () => {
 
             <button
               onClick={() => window.print()}
-              className="w-full py-2 px-3 bg-white border border-emerald-300 hover:bg-emerald-100/50 text-emerald-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+              className="w-full py-2.5 px-3 bg-white border border-emerald-300 hover:bg-emerald-100/50 text-emerald-800 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
             >
               <Printer className="w-4 h-4" />
-              <span>{lang === "bn" ? "রসিদ প্রিন্ট করুন" : "Print Receipt"}</span>
+              <span>{lang === "bn" ? "রসিদ প্রিন্ট করুন" : "Print Official Receipt"}</span>
             </button>
           </div>
         ) : !isCancelled ? (
-          isSimulatorEnabled ? (
-            <div className="bg-gradient-to-r from-pink-500/10 via-purple-500/10 to-indigo-500/10 border border-pink-200 rounded-2xl p-5 shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-accent animate-pulse" />
-                  <h3 className="text-sm font-bold text-gray-900">
-                    {lang === "bn" ? "অনলাইনে সরাসরি পেমেন্ট করুন" : "Pay Bill Online"}
-                  </h3>
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center">
+                  <CreditCard className="w-4 h-4" />
                 </div>
-                <span className="text-xs font-black text-accent">{formatCurrency(order.total)}</span>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-sm">
+                    {lang === "bn" ? "বিল পরিশোধ করুন" : "Settle Your Bill"}
+                  </h3>
+                  <p className="text-[11px] text-gray-500">
+                    {order.status === "served"
+                      ? lang === "bn"
+                        ? "খাবার পরিবেশন সম্পন্ন হয়েছে। আপনার পছন্দের উপায়ে বিল পরিশোধ করুন।"
+                        : "Food has been served. Please select your payment method."
+                      : lang === "bn"
+                      ? "পেমেন্ট পদ্ধতি নির্বাচন করুন বা কাউন্টারে ক্যাশ প্রদান করুন।"
+                      : "Choose your preferred payment method below."}
+                  </p>
+                </div>
               </div>
 
-              <p className="text-xs text-gray-600">
-                {lang === "bn"
-                  ? "বিকাশ, নগদ বা ডেবিট/ক্রেডিট কার্ড দিয়ে সহজেই আপনার বিল সরাসরি পরিশোধ করুন।"
-                  : "Fast & secure digital payment via bKash, Nagad, or Cards (SSLCOMMERZ)."}
-              </p>
-
-              <button
-                onClick={() => setShowPaymentModal(true)}
-                className="w-full py-3 px-4 bg-[#E2136E] hover:bg-[#C2105D] text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
-              >
-                <CreditCard className="w-4 h-4" />
-                <span>
-                  {lang === "bn"
-                    ? `বিকাশ / কার্ড দিয়ে পে করুন (${formatCurrency(order.total)})`
-                    : `Pay Online with bKash / Card (${formatCurrency(order.total)})`}
-                </span>
-              </button>
-            </div>
-          ) : (
-            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5 shadow-sm space-y-2 text-center">
-              <div className="inline-flex p-2.5 rounded-full bg-accent/10 text-accent mb-1">
-                <CreditCard className="w-5 h-5" />
+              <div className="text-right">
+                <span className="text-[10px] text-gray-400 uppercase font-bold block">Payable</span>
+                <span className="text-base font-black text-accent">{formatCurrency(order.total)}</span>
               </div>
-              <h3 className="text-sm font-bold text-gray-900">
-                {lang === "bn" ? "কাউন্টারে বিল পরিশোধ করুন" : "Pay at Counter"}
-              </h3>
-              <p className="text-xs text-gray-500 max-w-sm mx-auto">
-                {lang === "bn"
-                  ? "অনুগ্রহ করে খাবার পরিবেশন শেষে কাউন্টারে ক্যাশ বা কার্ডে বিল পরিশোধ করুন।"
-                  : "Please settle your bill with cash or card directly at the restaurant counter after dining."}
-              </p>
             </div>
-          )
+
+            {/* Option 1: Cash Selected Confirmation */}
+            {cashSelected ? (
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-3 animate-fadeIn">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5">
+                    <Banknote className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-xs text-emerald-950">
+                        {lang === "bn" ? "ক্যাশ পেমেন্ট নির্বাচিত" : "Cash Payment Selected"}
+                      </h4>
+                      <span className="text-[10px] bg-emerald-600 text-white font-bold px-2 py-0.2 rounded-full">
+                        Confirmed
+                      </span>
+                    </div>
+                    <p className="text-xs text-emerald-800 mt-1 leading-relaxed">
+                      {lang === "bn"
+                        ? "অনুগ্রহ করে কাউন্টারে এসে অথবা আপনার টেবিলের ওয়েটারকে নগদ অর্থ প্রদান করুন। ক্যাশিয়ার আপনাকে সিলযুক্ত সরকারি মূসক রসিদ প্রদান করবেন।"
+                        : "Cash selected — Please pay at the counter or to your waiter. The cashier will settle your bill and hand over your verified receipt."}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-emerald-200/60 flex items-center justify-between">
+                  <span className="text-[11px] text-emerald-700">
+                    {lang === "bn" ? "অনলাইনে পে করতে চান?" : "Prefer to pay online?"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCashSelected(false);
+                      setShowPaymentModal(true);
+                    }}
+                    className="text-xs font-bold text-accent hover:underline flex items-center gap-1"
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>{lang === "bn" ? "বিকাশ / নগদ দিয়ে পে করুন" : "Switch to bKash / Nagad Pay"}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Hybrid Payment Selection Options */
+              <div className="grid sm:grid-cols-2 gap-3">
+                {/* Option 1: Pay with Cash */}
+                <div className="border border-gray-200 rounded-xl p-4 flex flex-col justify-between hover:border-emerald-300 hover:bg-emerald-50/30 transition-all group">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <Banknote className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-xs text-gray-900 group-hover:text-emerald-900 transition-colors">
+                        {lang === "bn" ? "ক্যাশ পেমেন্ট" : "Pay with Cash"}
+                      </h4>
+                      <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
+                        {lang === "bn"
+                          ? "কাউন্টারে বা ওয়েটারকে সরাসরি নগদ টাকা প্রদান করুন"
+                          : "Pay cash at the restaurant counter or to your waiter"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSelectCash}
+                    disabled={cashSelecting}
+                    className="w-full py-2.5 px-3 bg-white border border-gray-300 hover:border-emerald-500 hover:bg-emerald-50 text-gray-800 hover:text-emerald-900 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-50"
+                  >
+                    {cashSelecting ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Updating...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>{lang === "bn" ? "ক্যাশ নির্বাচন করুন" : "Select Cash Payment"}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Option 2: Pay Online (Sandbox Gateway) */}
+                <div className="border border-orange-200 rounded-xl p-4 bg-gradient-to-br from-orange-50/40 via-pink-50/30 to-purple-50/40 flex flex-col justify-between hover:border-orange-400 transition-all">
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between gap-1 mb-2">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-orange-600 animate-pulse" />
+                        <h4 className="font-black text-xs text-gray-900">
+                          {lang === "bn" ? "অনলাইন পেমেন্ট" : "Pay Online"}
+                        </h4>
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-800 border border-orange-200">
+                        SANDBOX PAY
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium mb-1">
+                      <span className="px-1.5 py-0.2 rounded bg-pink-100 text-pink-700 font-bold">bKash</span>
+                      <span className="px-1.5 py-0.2 rounded bg-orange-100 text-orange-700 font-bold">Nagad</span>
+                      <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-700 font-bold">Card</span>
+                    </div>
+
+                    <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                      {lang === "bn"
+                        ? "বিকাশ, নগদ অথবা কার্ড দিয়ে তাৎক্ষণিক বিল পরিশোধ ও টেবিল রিলিজ করুন"
+                        : "Instant digital settlement with TrxID & digital VAT invoice receipt"}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPaymentModal(true)}
+                    className="w-full py-2.5 px-3 bg-gradient-to-r from-orange-600 via-[#E2136E] to-purple-600 hover:from-orange-700 hover:via-[#C2105D] hover:to-purple-700 text-white rounded-xl font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <CreditCard className="w-3.5 h-3.5" />
+                    <span>
+                      {lang === "bn"
+                        ? `অনলাইনে পে করুন (${formatCurrency(order.total)})`
+                        : `Pay Online (${formatCurrency(order.total)})`}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         ) : null}
 
-        {/* Online Payment Modal */}
-        {showPaymentModal && restaurant && isSimulatorEnabled && (
+        {/* Online Payment Sandbox Gateway Modal */}
+        {showPaymentModal && restaurant && (
           <OnlinePaymentModal
             orderId={order.id}
             orderNumber={order.order_number}

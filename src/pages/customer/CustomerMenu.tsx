@@ -73,6 +73,23 @@ const CustomerMenuContent: React.FC = () => {
     capacity: number;
   } | null>(null);
   const [tableError, setTableError] = useState<string | null>(null);
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (restaurant?.id) {
+      try {
+        const stored = localStorage.getItem(`amarmenu_active_order_${restaurant.id}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed?.orderId) {
+            setActiveOrderId(parsed.orderId);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [restaurant?.id]);
 
   // Load restaurant & menu items with guaranteed setLoading(false)
   useEffect(() => {
@@ -569,9 +586,36 @@ const CustomerMenuContent: React.FC = () => {
         onSuccess={(orderId) => {
           clearCart();
           setShowCheckout(false);
+          try {
+            if (restaurant?.id) {
+              localStorage.setItem(
+                `amarmenu_active_order_${restaurant.id}`,
+                JSON.stringify({ orderId, placedAt: Date.now() })
+              );
+            }
+          } catch {
+            // ignore
+          }
           navigate(`/order/${orderId}`);
         }}
       />
+
+      {/* Floating Active Order Tracker Banner when cart is empty */}
+      {itemCount === 0 && activeOrderId && (
+        <div className="fixed bottom-4 left-4 right-4 max-w-sm mx-auto z-40 animate-fadeIn">
+          <button
+            type="button"
+            onClick={() => navigate(`/order/${activeOrderId}`)}
+            className="w-full bg-slate-900/95 hover:bg-black text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-700/60 backdrop-blur-md flex items-center justify-between gap-3 text-xs font-bold transition-all"
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+              <span>{lang === "bn" ? "অর্ডারের স্ট্যাটাস ও বিল পরিশোধ" : "Active Order: Live Status & Pay Bill"}</span>
+            </div>
+            <ArrowRight className="w-4 h-4 text-orange-400" />
+          </button>
+        </div>
+      )}
 
       {/* Floating Bottom Cart Bar */}
       {itemCount > 0 && (

@@ -679,9 +679,16 @@ const Orders: React.FC = () => {
                               )}
 
                               {order.status === "served" && (
-                                <div className="w-full py-1.5 bg-teal-50 text-teal-700 border border-teal-200 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1">
-                                  <CheckCircle className="w-3.5 h-3.5" />
-                                  <span>Served to Table</span>
+                                <div className="space-y-1">
+                                  <div className="w-full py-1.5 bg-teal-50 text-teal-700 border border-teal-200 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1">
+                                    <CheckCircle className="w-3.5 h-3.5" />
+                                    <span>Served to Table</span>
+                                  </div>
+                                  {order.payment_method === "cash" && (
+                                    <div className="w-full py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-md text-[11px] font-bold flex items-center justify-center space-x-1">
+                                      <span>💵 Guest opted for Cash Payment</span>
+                                    </div>
+                                  )}
                                 </div>
                               )}
 

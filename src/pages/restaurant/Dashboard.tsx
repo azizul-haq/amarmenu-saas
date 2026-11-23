@@ -320,8 +320,16 @@ const RestaurantDashboard: React.FC = () => {
             to="/restaurant"
             className="flex items-center space-x-3 overflow-hidden"
           >
-            <div className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${roleConfig.brandBadgeGrad} flex items-center justify-center flex-shrink-0 transition-all duration-300`}>
-              <StoreIcon className="w-5 h-5 text-white" />
+            <div className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${roleConfig.brandBadgeGrad} flex items-center justify-center flex-shrink-0 transition-all duration-300 overflow-hidden`}>
+              {restaurant?.logo_url ? (
+                <img
+                  src={restaurant.logo_url}
+                  alt={restaurant.name || "Restaurant"}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <StoreIcon className="w-5 h-5 text-white" />
+              )}
             </div>
             {!isCollapsed && (
               <div className="truncate">

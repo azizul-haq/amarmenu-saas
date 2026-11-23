@@ -624,6 +624,7 @@ const KitchenKDS: React.FC = () => {
         <KOTReceipt
           order={printOrder}
           restaurantName={restaurantName}
+          restaurantLogo={authRestaurant?.logo_url || undefined}
           onClose={() => setPrintOrder(null)}
           onPrint={async () => {
             await recordKOTPrint(printOrder.id);

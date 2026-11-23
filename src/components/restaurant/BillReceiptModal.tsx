@@ -59,6 +59,15 @@ export const BillReceiptModal: React.FC<BillReceiptModalProps> = ({
         >
           {/* Restaurant Details */}
           <div className="text-center border-b border-dashed border-gray-400 pb-3">
+            {restaurant?.logo_url && (
+              <div className="flex justify-center mb-2">
+                <img
+                  src={restaurant.logo_url}
+                  alt={restaurantName}
+                  className="max-h-12 max-w-[120px] object-contain filter grayscale contrast-125 print:max-h-12"
+                />
+              </div>
+            )}
             <h2 className="text-base font-black tracking-tight uppercase">
               {restaurantName}
             </h2>

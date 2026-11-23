@@ -1,5 +1,14 @@
-import React, { useState, useEffect } from "react";
-import { Download, QrCode as QrCodeIcon, ExternalLink } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import {
+  Download,
+  QrCode as QrCodeIcon,
+  ExternalLink,
+  Image as ImageIcon,
+  Upload,
+  Trash2,
+  Camera,
+  CheckCircle2,
+} from "lucide-react";
 import { Card, Button, Loading, Alert } from "../../components/ui";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "../../config/supabase";
@@ -7,10 +16,17 @@ import { useAuth } from "../../context/AuthContext";
 import type { Restaurant } from "../../config/supabase";
 
 const RestaurantSettings: React.FC = () => {
-  const { restaurant: authRestaurant, restaurantId } = useAuth();
+  const { restaurant: authRestaurant, restaurantId, refreshProfile } = useAuth();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(authRestaurant || null);
   const [loading, setLoading] = useState(!authRestaurant);
   const [error, setError] = useState("");
+
+  // Logo upload state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [logoSuccess, setLogoSuccess] = useState<string>("");
+  const [logoError, setLogoError] = useState<string>("");
 
   useEffect(() => {
     if (authRestaurant) {
@@ -70,6 +86,130 @@ const RestaurantSettings: React.FC = () => {
     img.src = "data:image/svg+xml;base64," + btoa(svgData);
   };
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !restaurant) return;
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
+    setLogoError("");
+    setLogoSuccess("");
+
+    // Validate mime type
+    const validMimes = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+    if (!validMimes.includes(file.type)) {
+      setLogoError("Please upload a valid image file (PNG, JPG, or WEBP).");
+      return;
+    }
+
+    // Validate size (max 2 MB)
+    const maxSizeBytes = 2 * 1024 * 1024;
+    if (file.size > maxSizeBytes) {
+      setLogoError("Image size exceeds 2 MB limit. Please select a smaller image.");
+      return;
+    }
+
+    // Instant local preview
+    const localPreview = URL.createObjectURL(file);
+    setPreviewUrl(localPreview);
+    setUploading(true);
+
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+      const safeExt = ["png", "jpg", "jpeg", "webp"].includes(ext) ? ext : "png";
+      const filePath = `${restaurant.id}/logo-${Date.now()}.${safeExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("restaurant-logos")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: true,
+        });
+
+      if (uploadError) {
+        throw new Error(uploadError.message || "Failed to upload image to storage");
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("restaurant-logos")
+        .getPublicUrl(filePath);
+
+      const publicUrl = urlData.publicUrl;
+
+      const { error: updateError } = await supabase
+        .from("restaurants")
+        .update({
+          logo_url: publicUrl,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", restaurant.id);
+
+      if (updateError) {
+        throw new Error(updateError.message || "Failed to update restaurant logo URL");
+      }
+
+      setRestaurant((prev) => (prev ? { ...prev, logo_url: publicUrl } : prev));
+      setPreviewUrl(null);
+      setLogoSuccess("Restaurant logo uploaded and saved successfully!");
+
+      if (refreshProfile) {
+        await refreshProfile();
+      }
+    } catch (err: any) {
+      setPreviewUrl(null);
+      setLogoError(err.message || "Failed to upload restaurant logo.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!restaurant) return;
+    if (!window.confirm("Are you sure you want to remove your restaurant logo?")) {
+      return;
+    }
+
+    setUploading(true);
+    setLogoError("");
+    setLogoSuccess("");
+
+    try {
+      if (restaurant.logo_url && restaurant.logo_url.includes("restaurant-logos/")) {
+        const parts = restaurant.logo_url.split("restaurant-logos/");
+        if (parts[1]) {
+          const objectPath = decodeURIComponent(parts[1].split("?")[0]);
+          await supabase.storage.from("restaurant-logos").remove([objectPath]);
+        }
+      }
+
+      const { error: updateError } = await supabase
+        .from("restaurants")
+        .update({
+          logo_url: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", restaurant.id);
+
+      if (updateError) {
+        throw new Error(updateError.message || "Failed to remove logo");
+      }
+
+      setRestaurant((prev) => (prev ? { ...prev, logo_url: undefined } : prev));
+      setPreviewUrl(null);
+      setLogoSuccess("Restaurant logo removed successfully.");
+
+      if (refreshProfile) {
+        await refreshProfile();
+      }
+    } catch (err: any) {
+      setLogoError(err.message || "Failed to remove restaurant logo.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   if (loading) {
     return <Loading text="Loading settings..." />;
   }
@@ -79,6 +219,7 @@ const RestaurantSettings: React.FC = () => {
   }
 
   const menuUrl = `${window.location.origin}/menu/${restaurant.slug}`;
+  const currentLogoUrl = previewUrl || restaurant.logo_url;
 
   return (
     <div className="space-y-6">
@@ -86,9 +227,112 @@ const RestaurantSettings: React.FC = () => {
       <div>
         <h2 className="text-2xl font-bold text-text mb-2">Settings</h2>
         <p className="text-text-secondary">
-          Manage your restaurant QR code and menu access
+          Manage your restaurant branding, QR code, and menu access
         </p>
       </div>
+
+      {/* Restaurant Logo & Branding Section */}
+      <Card>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-9 h-9 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center font-bold">
+              <ImageIcon className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-text">Restaurant Logo & Branding</h3>
+              <p className="text-text-secondary text-sm">
+                Upload your brand logo for Customer QR Menu, POS Receipts, and Staff Sidebar
+              </p>
+            </div>
+          </div>
+          <span className="self-start sm:self-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            Custom Logo Available
+          </span>
+        </div>
+
+        {logoSuccess && (
+          <div className="mb-4">
+            <Alert type="success" message={logoSuccess} />
+          </div>
+        )}
+        {logoError && (
+          <div className="mb-4">
+            <Alert type="error" message={logoError} />
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row items-center gap-6 p-4 bg-slate-50 border border-slate-200/80 rounded-2xl">
+          {/* Logo Preview Box */}
+          <div className="relative group flex-shrink-0">
+            <div className="w-32 h-32 rounded-2xl border-2 border-dashed border-slate-300 bg-white flex items-center justify-center overflow-hidden shadow-xs">
+              {currentLogoUrl ? (
+                <img
+                  src={currentLogoUrl}
+                  alt={restaurant.name}
+                  className="w-full h-full object-contain p-2"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center text-slate-400 p-2 text-center">
+                  <Camera className="w-8 h-8 mb-1 text-slate-300" />
+                  <span className="text-[11px] font-semibold">No Logo</span>
+                </div>
+              )}
+            </div>
+            {uploading && (
+              <div className="absolute inset-0 bg-white/85 backdrop-blur-2xs rounded-2xl flex flex-col items-center justify-center">
+                <div className="w-7 h-7 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mb-1" />
+                <span className="text-[10px] font-bold text-orange-600">Uploading...</span>
+              </div>
+            )}
+          </div>
+
+          {/* Action buttons & requirements */}
+          <div className="flex-1 space-y-3 text-center sm:text-left">
+            <div>
+              <h4 className="font-bold text-gray-900 text-sm">Official Logo</h4>
+              <p className="text-xs text-gray-500 mt-0.5">
+                PNG, JPG, or WEBP up to 2 MB. Appears on Customer Menus, Thermal Bills, and POS Dashboard.
+              </p>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/webp"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 pt-1">
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                icon={<Upload className="w-4 h-4" />}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                {currentLogoUrl ? "Change Logo" : "Upload Logo"}
+              </Button>
+
+              {currentLogoUrl && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-red-600 hover:bg-red-50 hover:border-red-300 border-gray-300"
+                  icon={<Trash2 className="w-4 h-4 text-red-500" />}
+                  onClick={handleRemoveLogo}
+                  disabled={uploading}
+                >
+                  Remove Logo
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </Card>
 
       {/* QR Code Section */}
       <Card>

@@ -7,6 +7,7 @@ import { Button } from "../ui";
 interface KOTReceiptProps {
   order: Order;
   restaurantName: string;
+  restaurantLogo?: string;
   onClose: () => void;
   onPrint?: () => void;
 }
@@ -14,6 +15,7 @@ interface KOTReceiptProps {
 export const KOTReceipt: React.FC<KOTReceiptProps> = ({
   order,
   restaurantName,
+  restaurantLogo,
   onClose,
   onPrint,
 }) => {
@@ -62,6 +64,15 @@ export const KOTReceipt: React.FC<KOTReceiptProps> = ({
 
           {/* Restaurant & Ticket Header */}
           <div className="text-center border-b border-dashed border-gray-400 pb-3">
+            {restaurantLogo && (
+              <div className="flex justify-center mb-2">
+                <img
+                  src={restaurantLogo}
+                  alt={restaurantName}
+                  className="max-h-10 max-w-[100px] object-contain filter grayscale contrast-125 print:max-h-10"
+                />
+              </div>
+            )}
             <h2 className="text-base font-black tracking-tight uppercase">
               {restaurantName}
             </h2>

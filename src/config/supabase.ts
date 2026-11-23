@@ -365,6 +365,7 @@ export interface ZReportData {
     address?: string;
     vat_bin_no?: string;
     trade_license_no?: string;
+    logo_url?: string;
   };
   timings: {
     opened_at: string;

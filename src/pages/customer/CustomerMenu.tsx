@@ -294,12 +294,16 @@ const CustomerMenuContent: React.FC = () => {
         <div className="max-w-screen-lg mx-auto px-4 py-3">
           <div className="flex items-center justify-between gap-3 mb-3">
             <div className="flex items-center gap-3">
-              {restaurant.logo_url && (
+              {restaurant.logo_url ? (
                 <img
                   src={restaurant.logo_url}
                   alt={restaurant.name}
-                  className="w-11 h-11 rounded-xl object-cover border border-gray-100 shadow-sm"
+                  className="w-11 h-11 rounded-xl object-cover border border-gray-100 shadow-sm flex-shrink-0"
                 />
+              ) : (
+                <div className="w-11 h-11 rounded-xl bg-orange-100 border border-orange-200 text-orange-600 font-extrabold flex items-center justify-center text-base shadow-2xs flex-shrink-0">
+                  {restaurant.name ? restaurant.name.charAt(0).toUpperCase() : "🍽️"}
+                </div>
               )}
               <div>
                 <h1 className="font-bold text-base text-gray-900 leading-tight">

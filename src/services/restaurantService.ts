@@ -548,25 +548,42 @@ export const getRestaurantStats = async (restaurantId: string) => {
 // Subscribe to restaurant tables with real-time updates
 export const subscribeToTables = (
   restaurantId: string,
-  callback: (tables: RestaurantTable[]) => void
+  callback: (tables: RestaurantTable[]) => void,
+  onError?: (error: Error) => void
 ) => {
-  const fetchTables = async () => {
-    const { data, error } = await supabase
-      .from("restaurant_tables")
-      .select("*")
-      .eq("restaurant_id", restaurantId)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: true });
+  let isCancelled = false;
 
-    if (!error && data) {
-      callback(data as RestaurantTable[]);
+  const fetchTables = async () => {
+    try {
+      if (isCancelled) return;
+      const { data, error } = await supabase
+        .from("restaurant_tables")
+        .select("*")
+        .eq("restaurant_id", restaurantId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: true });
+
+      if (isCancelled) return;
+
+      if (error) {
+        console.error("subscribeToTables query error:", error);
+        onError?.(new Error(error.message));
+      } else {
+        callback((data as RestaurantTable[]) || []);
+      }
+    } catch (err: unknown) {
+      if (isCancelled) return;
+      const errorObj = err instanceof Error ? err : new Error("Failed to fetch tables");
+      console.error("subscribeToTables exception:", err);
+      onError?.(errorObj);
     }
   };
 
   fetchTables();
 
+  const channelName = `restaurant_tables_${restaurantId}_${Math.random().toString(36).substring(2, 7)}`;
   const channel = supabase
-    .channel(`restaurant_tables_${restaurantId}`)
+    .channel(channelName)
     .on(
       "postgres_changes",
       {
@@ -576,13 +593,14 @@ export const subscribeToTables = (
         filter: `restaurant_id=eq.${restaurantId}`,
       },
       () => {
-        fetchTables();
+        if (!isCancelled) fetchTables();
       }
     )
     .subscribe();
 
   return {
     unsubscribe: () => {
+      isCancelled = true;
       supabase.removeChannel(channel);
     },
   };

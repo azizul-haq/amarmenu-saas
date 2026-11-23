@@ -10,6 +10,7 @@ import {
   Lock,
   ArrowRight,
   CheckCircle2,
+  RefreshCw,
 } from "lucide-react";
 import {
   Card,
@@ -990,44 +991,67 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [selectedTableId, setSelectedTableId] = useState<string>(detectedTable?.id || "");
   const [selectedTableNumber, setSelectedTableNumber] = useState<string>(detectedTable?.table_number || "");
   const [tablesLoading, setTablesLoading] = useState<boolean>(true);
+  const [tablesFetchError, setTablesFetchError] = useState<string | null>(null);
+  const [tablesRetryTrigger, setTablesRetryTrigger] = useState<number>(0);
 
-  // Subscribe to tables live with Supabase Realtime
+  // Subscribe to tables live with Supabase Realtime & guaranteed unblock safety timer
   useEffect(() => {
     if (!restaurantId || !isOpen) return;
 
     let isMounted = true;
     setTablesLoading(true);
+    setTablesFetchError(null);
 
-    const subscription = subscribeToTables(restaurantId, (liveTables) => {
-      if (!isMounted) return;
-      const sorted = [...liveTables].sort((a, b) =>
-        a.table_number.localeCompare(b.table_number, undefined, { numeric: true, sensitivity: "base" })
-      );
-      setTables(sorted);
-      setTablesLoading(false);
-
-      if (detectedTable) {
-        const found = sorted.find(
-          (t) => t.id === detectedTable.id || t.table_number === detectedTable.table_number
-        );
-        if (found) {
-          setSelectedTableId(found.id);
-          setSelectedTableNumber(found.table_number);
-        }
-      } else if (qrToken) {
-        const qrMatch = sorted.find((t) => t.qr_token === qrToken);
-        if (qrMatch && qrMatch.status === "available") {
-          setSelectedTableId(qrMatch.id);
-          setSelectedTableNumber(qrMatch.table_number);
-        }
+    // Safety timeout: Ensure loading spinner NEVER hangs indefinitely (max 3.5s)
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) {
+        setTablesLoading(false);
       }
-    });
+    }, 3500);
+
+    const subscription = subscribeToTables(
+      restaurantId,
+      (liveTables) => {
+        if (!isMounted) return;
+        clearTimeout(safetyTimer);
+        setTablesFetchError(null);
+        const sorted = [...liveTables].sort((a, b) =>
+          a.table_number.localeCompare(b.table_number, undefined, { numeric: true, sensitivity: "base" })
+        );
+        setTables(sorted);
+        setTablesLoading(false);
+
+        if (detectedTable) {
+          const found = sorted.find(
+            (t) => t.id === detectedTable.id || t.table_number === detectedTable.table_number
+          );
+          if (found) {
+            setSelectedTableId(found.id);
+            setSelectedTableNumber(found.table_number);
+          }
+        } else if (qrToken) {
+          const qrMatch = sorted.find((t) => t.qr_token === qrToken);
+          if (qrMatch && qrMatch.status === "available") {
+            setSelectedTableId(qrMatch.id);
+            setSelectedTableNumber(qrMatch.table_number);
+          }
+        }
+      },
+      (err) => {
+        if (!isMounted) return;
+        clearTimeout(safetyTimer);
+        console.error("subscribeToTables error in checkout modal:", err);
+        setTablesFetchError(err.message || "Failed to load tables");
+        setTablesLoading(false);
+      }
+    );
 
     return () => {
       isMounted = false;
+      clearTimeout(safetyTimer);
       subscription.unsubscribe();
     };
-  }, [restaurantId, isOpen, detectedTable, qrToken]);
+  }, [restaurantId, isOpen, detectedTable, qrToken, tablesRetryTrigger]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1205,11 +1229,30 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mb-2" />
                 <span>{lang === "bn" ? "টেবিল লোড হচ্ছে..." : "Loading tables..."}</span>
               </div>
+            ) : tablesFetchError ? (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 text-center space-y-2">
+                <p className="font-semibold">
+                  {lang === "bn" ? "টেবিল তালিকা লোড করতে সমস্যা হয়েছে।" : "Failed to load restaurant tables."}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setTablesRetryTrigger((c) => c + 1)}
+                  className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs inline-flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>{lang === "bn" ? "পুনরায় চেষ্টা করুন" : "Retry"}</span>
+                </button>
+              </div>
             ) : tables.length === 0 ? (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs text-center font-medium">
-                {lang === "bn"
-                  ? "কোন টেবিল পাওয়া যায়নি। অনুগ্রহ করে কর্মীকে জানান।"
-                  : "No tables found. Please contact restaurant staff."}
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs text-center space-y-1">
+                <p className="font-bold">
+                  {lang === "bn" ? "কোন টেবিল কনফিগার করা হয়নি" : "No tables configured yet"}
+                </p>
+                <p className="text-[11px] text-amber-700 leading-relaxed">
+                  {lang === "bn"
+                    ? "এই রেস্তোরাঁর জন্য এখনো কোন টেবিল সেটআপ করা হয়নি। অনুগ্রহ করে পার্সেল / টেকঅ্যাওয়ে নির্বাচন করুন অথবা ওয়েটারকে জানান।"
+                    : "No tables are currently configured for this restaurant. Please select takeaway or contact the restaurant staff."}
+                </p>
               </div>
             ) : (
               <>

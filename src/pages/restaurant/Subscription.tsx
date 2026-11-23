@@ -20,9 +20,11 @@ import type {
 import { formatCurrency } from "../../utils/helpers";
 import { SubmitPaymentModal } from "../../components/restaurant/SubmitPaymentModal";
 import { OnlineSubscriptionModal } from "../../components/restaurant/OnlineSubscriptionModal";
+import { usePlanLimits, PLAN_CONFIGS } from "../../hooks/usePlanLimits";
 
 export const SubscriptionPage: React.FC = () => {
   const { restaurant, restaurantId: authRestaurantId } = useAuth();
+  const planLimits = usePlanLimits();
   const [loading, setLoading] = useState<boolean>(true);
   const [subscription, setSubscription] = useState<TenantSubscriptionRecord | null>(null);
   const [invoices, setInvoices] = useState<SubscriptionInvoice[]>([]);
@@ -228,28 +230,96 @@ export const SubscriptionPage: React.FC = () => {
             </div>
           </div>
 
+          <div className="grid sm:grid-cols-2 gap-3 text-xs">
+            <div className="p-3 bg-bg-subtle rounded-lg border border-border">
+              <span className="text-[10px] uppercase font-bold text-text-secondary block">
+                Table Quota Limit
+              </span>
+              <span className="font-extrabold text-sm text-text">
+                {planLimits.maxTables ? `${planLimits.maxTables} Tables Maximum` : "Unlimited Tables"}
+              </span>
+            </div>
+            <div className="p-3 bg-bg-subtle rounded-lg border border-border">
+              <span className="text-[10px] uppercase font-bold text-text-secondary block">
+                Staff Accounts Quota
+              </span>
+              <span className="font-extrabold text-sm text-text">
+                {planLimits.maxStaff ? `${planLimits.maxStaff} Staff Accounts` : "Unlimited Staff"}
+              </span>
+            </div>
+          </div>
+
           <div className="pt-2">
             <h4 className="font-semibold text-xs text-text-secondary uppercase mb-2">
-              Plan Entitlements:
+              Active Plan Features & Entitlements:
             </h4>
             <div className="grid sm:grid-cols-2 gap-2 text-xs text-text">
               <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-success" /> Unlimited Tables & Dynamic QR Codes
+                <CheckCircle2 className="w-4 h-4 text-success shrink-0" /> Custom Restaurant Logo & Branding
               </span>
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-success" /> Waiter POS & Order State Machine
+              <span className={`flex items-center gap-1.5 ${planLimits.features.kds ? "text-text" : "text-gray-400"}`}>
+                {planLimits.features.kds ? (
+                  <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                ) : (
+                  <span className="w-4 h-4 flex items-center justify-center font-bold text-gray-300">✕</span>
+                )}
+                <span className={planLimits.features.kds ? "font-medium" : "line-through"}>Real-time Kitchen KDS</span>
               </span>
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-success" /> Realtime KDS with Audio Alerts
+              <span className={`flex items-center gap-1.5 ${planLimits.features.delivery_role ? "text-text" : "text-gray-400"}`}>
+                {planLimits.features.delivery_role ? (
+                  <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                ) : (
+                  <span className="w-4 h-4 flex items-center justify-center font-bold text-gray-300">✕</span>
+                )}
+                <span className={planLimits.features.delivery_role ? "font-medium" : "line-through"}>Delivery Role Dispatch</span>
               </span>
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-success" /> Bangladesh NBR Mushak-6.3 VAT Reports
+              <span className={`flex items-center gap-1.5 ${planLimits.features.vat_reports ? "text-text" : "text-gray-400"}`}>
+                {planLimits.features.vat_reports ? (
+                  <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                ) : (
+                  <span className="w-4 h-4 flex items-center justify-center font-bold text-gray-300">✕</span>
+                )}
+                <span className={planLimits.features.vat_reports ? "font-medium" : "line-through"}>NBR Mushak-6.3 VAT Reports</span>
               </span>
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-success" /> Daily Cash Shifts & EOD Z-Reports
+              <span className={`flex items-center gap-1.5 ${planLimits.features.cash_shifts ? "text-text" : "text-gray-400"}`}>
+                {planLimits.features.cash_shifts ? (
+                  <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                ) : (
+                  <span className="w-4 h-4 flex items-center justify-center font-bold text-gray-300">✕</span>
+                )}
+                <span className={planLimits.features.cash_shifts ? "font-medium" : "line-through"}>Cashier Shifts & Z-Reports</span>
               </span>
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-success" /> Append-Only Immutable Audit Trail
+              <span className={`flex items-center gap-1.5 ${planLimits.features.activity_history ? "text-text" : "text-gray-400"}`}>
+                {planLimits.features.activity_history ? (
+                  <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                ) : (
+                  <span className="w-4 h-4 flex items-center justify-center font-bold text-gray-300">✕</span>
+                )}
+                <span className={planLimits.features.activity_history ? "font-medium" : "line-through"}>Order Activity History</span>
+              </span>
+              <span className={`flex items-center gap-1.5 ${planLimits.features.pin_void ? "text-text" : "text-gray-400"}`}>
+                {planLimits.features.pin_void ? (
+                  <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                ) : (
+                  <span className="w-4 h-4 flex items-center justify-center font-bold text-gray-300">✕</span>
+                )}
+                <span className={planLimits.features.pin_void ? "font-medium" : "line-through"}>Manager PIN Void Protection</span>
+              </span>
+              <span className={`flex items-center gap-1.5 ${planLimits.features.audit_logs ? "text-text" : "text-gray-400"}`}>
+                {planLimits.features.audit_logs ? (
+                  <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                ) : (
+                  <span className="w-4 h-4 flex items-center justify-center font-bold text-gray-300">✕</span>
+                )}
+                <span className={planLimits.features.audit_logs ? "font-medium" : "line-through"}>Immutable Audit Trail</span>
+              </span>
+              <span className={`flex items-center gap-1.5 ${planLimits.features.csv_export ? "text-text" : "text-gray-400"}`}>
+                {planLimits.features.csv_export ? (
+                  <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                ) : (
+                  <span className="w-4 h-4 flex items-center justify-center font-bold text-gray-300">✕</span>
+                )}
+                <span className={planLimits.features.csv_export ? "font-medium" : "line-through"}>CSV Data Exports</span>
               </span>
             </div>
           </div>
@@ -284,6 +354,154 @@ export const SubscriptionPage: React.FC = () => {
             Refresh Status
           </Button>
         </Card>
+      </div>
+
+      {/* 3-Tier SaaS Plan Comparison & Upgrade Grid */}
+      <div className="space-y-4">
+        <div>
+          <h3 className="font-extrabold text-lg text-text">SaaS Subscription Plans</h3>
+          <p className="text-xs text-text-secondary">
+            Switch plans anytime to adjust table capacity, staff limits, and advanced operational features
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-6">
+          {Object.entries(PLAN_CONFIGS).map(([key, plan]) => {
+            const isCurrent = (subscription?.plan_code || "growth") === key;
+            return (
+              <Card
+                key={key}
+                className={`p-5 flex flex-col justify-between border ${
+                  isCurrent
+                    ? "ring-2 ring-primary border-primary bg-primary/5 shadow-md"
+                    : "border-border bg-white shadow-xs"
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-black text-lg text-text">{plan.name}</h4>
+                    {isCurrent ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-success text-white">
+                        CURRENT PLAN
+                      </span>
+                    ) : key === "growth" ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-accent text-white uppercase tracking-wider">
+                        POPULAR
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mb-3">
+                    <span className="text-3xl font-black text-text">
+                      {formatCurrency(plan.priceMonthly)}
+                    </span>
+                    <span className="text-xs text-text-secondary">/mo</span>
+                    <div className="text-xs text-emerald-600 font-semibold mt-0.5">
+                      Annual: {formatCurrency(plan.priceYearly)}/yr (20% off)
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-bg-subtle border border-border space-y-1.5 text-xs mb-3">
+                    <div className="flex justify-between font-semibold">
+                      <span className="text-text-secondary">Max Tables:</span>
+                      <span className="text-text font-bold">
+                        {plan.maxTables ? `${plan.maxTables} Tables` : "Unlimited"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between font-semibold">
+                      <span className="text-text-secondary">Staff Accounts:</span>
+                      <span className="text-text font-bold">
+                        {plan.maxStaff ? `${plan.maxStaff} Staff` : "Unlimited"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <ul className="space-y-1.5 text-xs text-text-secondary py-1">
+                    <li className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
+                      <span>Custom Restaurant Logo</span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <span className={plan.features.kds ? "text-success font-bold" : "text-gray-300"}>
+                        {plan.features.kds ? "✓" : "✕"}
+                      </span>
+                      <span className={plan.features.kds ? "text-text" : "line-through text-gray-400"}>
+                        Real-time Kitchen KDS
+                      </span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <span className={plan.features.delivery_role ? "text-success font-bold" : "text-gray-300"}>
+                        {plan.features.delivery_role ? "✓" : "✕"}
+                      </span>
+                      <span className={plan.features.delivery_role ? "text-text" : "line-through text-gray-400"}>
+                        Delivery Role Dispatch
+                      </span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <span className={plan.features.vat_reports ? "text-success font-bold" : "text-gray-300"}>
+                        {plan.features.vat_reports ? "✓" : "✕"}
+                      </span>
+                      <span className={plan.features.vat_reports ? "text-text" : "line-through text-gray-400"}>
+                        NBR Mushak-6.3 VAT
+                      </span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <span className={plan.features.cash_shifts ? "text-success font-bold" : "text-gray-300"}>
+                        {plan.features.cash_shifts ? "✓" : "✕"}
+                      </span>
+                      <span className={plan.features.cash_shifts ? "text-text" : "line-through text-gray-400"}>
+                        Cashier Shifts & Z-Report
+                      </span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <span className={plan.features.pin_void ? "text-success font-bold" : "text-gray-300"}>
+                        {plan.features.pin_void ? "✓" : "✕"}
+                      </span>
+                      <span className={plan.features.pin_void ? "text-text" : "line-through text-gray-400"}>
+                        Manager PIN Void
+                      </span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <span className={plan.features.audit_logs ? "text-success font-bold" : "text-gray-300"}>
+                        {plan.features.audit_logs ? "✓" : "✕"}
+                      </span>
+                      <span className={plan.features.audit_logs ? "text-text" : "line-through text-gray-400"}>
+                        Tamper-Proof Audit Trail
+                      </span>
+                    </li>
+                    <li className="flex items-center gap-1.5">
+                      <span className={plan.features.csv_export ? "text-success font-bold" : "text-gray-300"}>
+                        {plan.features.csv_export ? "✓" : "✕"}
+                      </span>
+                      <span className={plan.features.csv_export ? "text-text" : "line-through text-gray-400"}>
+                        CSV Data Exports
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="pt-4 mt-2">
+                  {isCurrent ? (
+                    <Button variant="outline" size="sm" fullWidth disabled className="text-xs">
+                      Active Plan
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      fullWidth
+                      onClick={() => setShowOnlineModal(true)}
+                      icon={<Zap className="w-3.5 h-3.5" />}
+                      className="text-xs font-bold"
+                    >
+                      Switch to {plan.name}
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
       </div>
 
       {/* Invoice & Payment History */}

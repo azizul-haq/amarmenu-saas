@@ -105,7 +105,7 @@ export interface SubscriptionPlanRecord {
   price_yearly: number;
   max_tables: number | null;
   max_staff: number | null;
-  features: string[];
+  features: Record<string, boolean> | string[];
   is_active: boolean;
   active_subscribers?: number;
   created_at?: string;

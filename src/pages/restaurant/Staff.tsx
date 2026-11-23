@@ -20,9 +20,11 @@ import { useAuth } from "../../context/AuthContext";
 import type { RestaurantStaff } from "../../config/supabase";
 import { copyToClipboard as copyTextToClipboard } from "../../utils/helpers";
 import { invokeStaffAction } from "../../services/staffService";
+import { usePlanLimits, UpgradePlanBanner } from "../../hooks/usePlanLimits";
 
 export const StaffPage: React.FC = () => {
   const { user, restaurant, role: currentUserRole } = useAuth();
+  const planLimits = usePlanLimits();
   const [staffList, setStaffList] = useState<RestaurantStaff[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -79,6 +81,12 @@ export const StaffPage: React.FC = () => {
   }, [fetchStaff]);
 
   const openAddModal = () => {
+    if (!planLimits.canAddStaff(staffList.length)) {
+      setError(
+        `Your ${planLimits.planName} plan limit of ${planLimits.maxStaff} staff accounts has been reached. Please upgrade your subscription to add more team members.`
+      );
+      return;
+    }
     setEditingStaff(null);
     setFullName("");
     setEmail("");
@@ -287,6 +295,11 @@ export const StaffPage: React.FC = () => {
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             Manage your restaurant roster, role assignments, and granular RBAC security.
+            {planLimits.maxStaff && (
+              <span className="font-semibold text-slate-700 ml-1">
+                (Plan Quota: {staffList.length}/{planLimits.maxStaff} accounts used)
+              </span>
+            )}
           </p>
         </div>
 
@@ -300,6 +313,16 @@ export const StaffPage: React.FC = () => {
           </Button>
         )}
       </div>
+
+      {/* Plan Limit Banner */}
+      {!planLimits.canAddStaff(staffList.length) && (
+        <UpgradePlanBanner
+          featureName="Additional Staff Accounts"
+          currentCount={staffList.length}
+          maxLimit={planLimits.maxStaff}
+          requiredPlan={planLimits.planSlug === "starter" ? "growth" : "enterprise"}
+        />
+      )}
 
       {error && <Alert type="error" message={error} onClose={() => setError(null)} />}
       {success && <Alert type="success" message={success} onClose={() => setSuccess(null)} />}

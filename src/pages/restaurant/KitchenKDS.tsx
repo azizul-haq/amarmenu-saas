@@ -23,6 +23,7 @@ import { playSound } from "../../utils/helpers";
 import { KOTReceipt } from "../../components/restaurant/KOTReceipt";
 import { Loading, Button } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
+import { usePlanLimits, UpgradePlanBanner } from "../../hooks/usePlanLimits";
 
 // Helper to synchronously read cached kitchen orders for zero-delay hydration
 const getCachedKitchenOrders = (restId: string | null): Order[] => {
@@ -38,6 +39,7 @@ const getCachedKitchenOrders = (restId: string | null): Order[] => {
 };
 
 const KitchenKDS: React.FC = () => {
+  const planLimits = usePlanLimits();
   const {
     restaurant: authRestaurant,
     restaurantId: authRestaurantId,
@@ -182,6 +184,16 @@ const KitchenKDS: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {/* Plan Lock Banner */}
+      {planLimits.isFeatureLocked("kds") && (
+        <UpgradePlanBanner
+          title="Kitchen Display System (KDS) is Locked on Starter Plan"
+          description="Real-time kitchen order streaming, cook timing, and acoustic chime alerts require the Growth or Enterprise tier."
+          requiredPlan="growth"
+          featureName="Kitchen Display System"
+        />
+      )}
+
       {/* Top KDS Control Bar */}
       <div className="bg-gray-900 text-white p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 shadow-md">
         <div className="flex items-center gap-3">

@@ -26,6 +26,7 @@ import type { RestaurantTable } from "../../config/supabase";
 import { restaurantTableSchema } from "../../schemas/tableSchema";
 import { Card, Button, Input, Modal, Loading, Alert } from "../../components/ui";
 import { copyToClipboard } from "../../utils/helpers";
+import { usePlanLimits, UpgradePlanBanner } from "../../hooks/usePlanLimits";
 
 // Helper to synchronously read cached tables for zero-delay hydration
 const getCachedTables = (restId: string | null): RestaurantTable[] => {
@@ -42,6 +43,7 @@ const getCachedTables = (restId: string | null): RestaurantTable[] => {
 
 const TablesPage: React.FC = () => {
   const { restaurant, user, loading: authLoading } = useAuth();
+  const planLimits = usePlanLimits();
   const initialRestId =
     restaurant?.id ||
     (() => {
@@ -127,6 +129,12 @@ const TablesPage: React.FC = () => {
 
   // Open Add/Edit Modal
   const handleOpenAdd = () => {
+    if (!planLimits.canAddTable(tables.length)) {
+      setError(
+        `Your ${planLimits.planName} plan limit of ${planLimits.maxTables} tables has been reached. Please upgrade your subscription to add more tables.`
+      );
+      return;
+    }
     setEditingTable(null);
     setFormData({
       table_number: `Table ${tables.length + 1}`,
@@ -360,6 +368,16 @@ const TablesPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Plan Limit Banner */}
+      {!planLimits.canAddTable(tables.length) && (
+        <UpgradePlanBanner
+          featureName="Additional Tables"
+          currentCount={tables.length}
+          maxLimit={planLimits.maxTables}
+          requiredPlan={planLimits.planSlug === "starter" ? "growth" : "enterprise"}
+        />
+      )}
+
       {/* Notifications */}
       {successMsg && <Alert type="success" message={successMsg} />}
       {error && <Alert type="error" message={error} />}
@@ -369,7 +387,14 @@ const TablesPage: React.FC = () => {
         <Card className="p-4 flex items-center justify-between">
           <div>
             <p className="text-xs text-text-secondary uppercase font-semibold">Total Tables</p>
-            <p className="text-2xl font-bold text-text mt-1">{tables.length}</p>
+            <p className="text-2xl font-bold text-text mt-1">
+              {tables.length}
+              {planLimits.maxTables !== null && (
+                <span className="text-xs text-text-secondary font-normal ml-1">
+                  / {planLimits.maxTables} max
+                </span>
+              )}
+            </p>
           </div>
           <div className="w-12 h-12 bg-accent/10 rounded-xl flex items-center justify-center text-accent">
             <QrCode className="w-6 h-6" />

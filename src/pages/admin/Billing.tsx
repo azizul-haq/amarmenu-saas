@@ -117,6 +117,15 @@ export const Billing: React.FC = () => {
 
   // Plan handlers
   const handleOpenEditPlan = (plan: SubscriptionPlanRecord) => {
+    let featuresText = "";
+    if (Array.isArray(plan.features)) {
+      featuresText = plan.features.join("\n");
+    } else if (plan.features && typeof plan.features === "object") {
+      featuresText = Object.entries(plan.features)
+        .map(([k, v]) => `${k}: ${v ? "true" : "false"}`)
+        .join("\n");
+    }
+
     setPlanForm({
       id: plan.id,
       name: plan.name,
@@ -126,7 +135,7 @@ export const Billing: React.FC = () => {
       price_yearly: plan.price_yearly,
       max_tables: plan.max_tables !== null && plan.max_tables !== undefined ? String(plan.max_tables) : "",
       max_staff: plan.max_staff !== null && plan.max_staff !== undefined ? String(plan.max_staff) : "",
-      features: (plan.features || []).join("\n"),
+      features: featuresText,
       is_active: plan.is_active,
     });
     setShowPlanModal(true);
@@ -803,7 +812,28 @@ export const Billing: React.FC = () => {
 
           <div className="grid md:grid-cols-3 gap-6">
             {plans.map((p) => {
-              const features = Array.isArray(p.features) ? p.features : [];
+              const featuresList: { label: string; enabled: boolean }[] = [];
+              if (Array.isArray(p.features)) {
+                p.features.forEach((f) => featuresList.push({ label: f, enabled: true }));
+              } else if (p.features && typeof p.features === "object") {
+                const labels: Record<string, string> = {
+                  custom_logo: "Custom Restaurant Logo",
+                  kds: "Real-time Kitchen Display (KDS)",
+                  delivery_role: "Delivery Role Dispatch",
+                  vat_reports: "NBR Mushak-6.3 VAT Reports",
+                  cash_shifts: "Cashier Shifts & Z-Reports",
+                  activity_history: "Order Activity History",
+                  pin_void: "Manager PIN Void Protection",
+                  audit_logs: "Security Audit Logs",
+                  csv_export: "CSV Data Exports",
+                };
+                Object.entries(p.features).forEach(([k, v]) => {
+                  featuresList.push({
+                    label: labels[k] || k.replace(/_/g, " "),
+                    enabled: Boolean(v),
+                  });
+                });
+              }
               return (
                 <Card
                   key={p.id}
@@ -872,11 +902,17 @@ export const Billing: React.FC = () => {
                       <span className="font-bold text-text">{p.active_subscribers || 0}</span> active restaurant tenant{(p.active_subscribers || 0) === 1 ? "" : "s"}
                     </div>
 
-                    <ul className="space-y-2 text-xs text-text-secondary pt-1">
-                      {features.map((feat, idx) => (
+                    <ul className="space-y-1.5 text-xs text-text-secondary pt-1">
+                      {featuresList.map((feat, idx) => (
                         <li key={idx} className="flex items-start gap-1.5">
-                          <Check className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />
-                          <span>{feat}</span>
+                          {feat.enabled ? (
+                            <Check className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />
+                          ) : (
+                            <span className="w-3.5 h-3.5 flex items-center justify-center font-bold text-gray-300 shrink-0">✕</span>
+                          )}
+                          <span className={feat.enabled ? "text-text font-medium" : "text-gray-400 line-through"}>
+                            {feat.label}
+                          </span>
                         </li>
                       ))}
                     </ul>

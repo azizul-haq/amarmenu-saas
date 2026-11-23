@@ -17,21 +17,21 @@ const PLANS = [
     name: "Starter",
     monthly: 1499,
     yearly: 14388,
-    features: "Up to 15 tables, QR ordering, 1 printer, Email support",
+    features: "Up to 15 tables, 5 staff, Custom Logo, QR ordering, bKash/Nagad",
   },
   {
     code: "growth",
     name: "Growth",
     monthly: 2999,
     yearly: 28788,
-    features: "Unlimited tables, Waiter POS, KDS display, 2 printers, NBR VAT, bKash",
+    features: "Up to 50 tables, 15 staff, KDS, Delivery Role, NBR VAT, Shift Management",
   },
   {
     code: "enterprise",
     name: "Enterprise",
     monthly: 5999,
     yearly: 57588,
-    features: "Multi-branch, Central warehouse, Dedicated account manager, 24/7 support",
+    features: "Unlimited tables & staff, Manager PIN Void, Tamper Audit, CSV Export, 24/7 Priority",
   },
 ] as const;
 

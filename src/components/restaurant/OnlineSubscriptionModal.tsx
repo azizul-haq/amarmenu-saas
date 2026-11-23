@@ -25,21 +25,21 @@ const PLANS = [
     name: "Starter",
     monthly: 1499,
     yearly: 14388,
-    features: "Up to 15 tables, 3 staff, QR menu, bKash/Nagad/Cards, Live orders",
+    features: "Up to 15 tables, 5 staff, Custom Logo, QR menu, bKash/Nagad/Cards",
   },
   {
     code: "growth",
     name: "Growth",
     monthly: 2999,
     yearly: 28788,
-    features: "Unlimited tables, 10 staff, KDS, POS Mode, NBR VAT, Shift Management",
+    features: "Up to 50 tables, 15 staff, KDS, Delivery Role, NBR VAT, Shift Management, Activity History",
   },
   {
     code: "enterprise",
     name: "Enterprise",
     monthly: 5999,
     yearly: 57588,
-    features: "Unlimited tables & staff, Manager PIN Void, Tamper Audit, 24/7 Priority",
+    features: "Unlimited tables & staff, Manager PIN Void, Tamper Audit, CSV Exports, 24/7 Priority",
   },
 ] as const;
 

@@ -461,10 +461,10 @@ export interface PlaceOrderDTO {
   customer_name: string;
   customer_phone: string;
   items: PlaceOrderItemDTO[];
-  customer_notes?: string;
-  table_id?: string;
-  table_number?: string;
-  qr_token?: string;
+  customer_notes?: string | null;
+  table_id?: string | null;
+  table_number?: string | null;
+  qr_token?: string | null;
   idempotency_key?: string;
   subtotal?: number;
   tax?: number;

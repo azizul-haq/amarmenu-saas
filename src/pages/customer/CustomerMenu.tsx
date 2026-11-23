@@ -1104,10 +1104,10 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
     const orderPayload = {
       restaurant_id: restaurantId,
-      table_id: orderType === "takeaway" ? undefined : selectedTableId,
+      table_id: orderType === "takeaway" ? null : (selectedTableId || null),
       order_type: effectiveOrderType as "dine_in" | "takeaway" | "qr" | "counter" | "table",
-      table_number: orderType === "takeaway" ? undefined : selectedTableNumber,
-      qr_token: orderType === "takeaway" ? undefined : (detectedTable ? qrToken : undefined),
+      table_number: orderType === "takeaway" ? null : (selectedTableNumber || null),
+      qr_token: orderType === "takeaway" ? null : (detectedTable ? qrToken : null),
       idempotency_key: idempotencyKey,
       customer_name: validData.customer_name,
       customer_phone: validData.customer_phone,

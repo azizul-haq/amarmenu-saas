@@ -29,7 +29,6 @@ import {
   Users,
   AlertTriangle,
   CheckCircle2,
-  User as UserIcon,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { ProtectedRoute } from "../../components/auth/ProtectedRoute";
@@ -38,7 +37,7 @@ import { getTenantSubscriptionDetails } from "../../services/subscriptionService
 import type { TenantSubscriptionRecord } from "../../schemas/subscriptionSchema";
 import { SubmitPaymentModal } from "../../components/restaurant/SubmitPaymentModal";
 import { RoleBasedSearchBar } from "../../components/common/RoleBasedSearchBar";
-import { RoleBadge, RoleWatermark, getRoleConfig } from "../../components/restaurant/RoleVisualIdentity";
+import { RoleWatermark, getRoleConfig } from "../../components/restaurant/RoleVisualIdentity";
 import RestaurantHome from "./RestaurantHome";
 import Orders from "./Orders";
 import KitchenKDS from "./KitchenKDS";
@@ -266,6 +265,30 @@ const RestaurantDashboard: React.FC = () => {
 
   const normRole = (role || "").toLowerCase().trim();
   const roleConfig = getRoleConfig(role);
+
+  // Derive clean page title from current URL pathname
+  const getPageTitle = (pathname: string): string => {
+    const cleanPath = pathname.replace(/\/$/, "");
+    if (cleanPath === "/restaurant") return "Dashboard";
+    if (cleanPath.startsWith("/restaurant/orders")) return "Orders";
+    if (cleanPath.startsWith("/restaurant/tables")) return "Tables";
+    if (cleanPath.startsWith("/restaurant/kitchen")) return "Kitchen KDS";
+    if (cleanPath.startsWith("/restaurant/shifts")) return "Cash Shifts";
+    if (cleanPath.startsWith("/restaurant/reports")) return "Reports";
+    if (cleanPath.startsWith("/restaurant/audit")) return "Audit Logs";
+    if (cleanPath.startsWith("/restaurant/menu")) return "Menu";
+    if (cleanPath.startsWith("/restaurant/staff")) return "Staff";
+    if (cleanPath.startsWith("/restaurant/subscription")) return "Subscription";
+    if (cleanPath.startsWith("/restaurant/settings")) return "Settings";
+    if (cleanPath.startsWith("/restaurant/profile")) return "Profile";
+    const segment = cleanPath.split("/").pop();
+    if (segment) {
+      return segment.charAt(0).toUpperCase() + segment.slice(1);
+    }
+    return "Dashboard";
+  };
+
+  const currentPageTitle = getPageTitle(location.pathname);
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
@@ -495,55 +518,43 @@ const RestaurantDashboard: React.FC = () => {
           isCollapsed ? "lg:pl-20" : "lg:pl-64"
         }`}
       >
-        {/* Modern Sticky Top Utility Bar with Lightweight Glassmorphism & Role-Colored Top Border */}
-        <header className={`sticky top-0 z-30 h-16 bg-white/85 backdrop-blur-sm border-b border-slate-200/80 shadow-xs px-4 sm:px-6 flex items-center justify-between transition-all duration-300 ${roleConfig.topBorderAccent}`}>
-          {/* Mobile hamburger */}
-          <div className="flex items-center space-x-2 lg:hidden">
+        {/* Clean Single-Line Top Header */}
+        <header className="sticky top-0 z-30 h-14 sm:h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between gap-4 whitespace-nowrap">
+          {/* Mobile hamburger + Current Page Title */}
+          <div className="flex items-center space-x-2.5 lg:hidden whitespace-nowrap min-w-0">
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="p-2 rounded-lg text-slate-600 hover:bg-slate-100"
+              className="p-1.5 -ml-1.5 rounded-lg text-slate-600 hover:bg-slate-100 flex-shrink-0"
+              aria-label="Open navigation menu"
             >
-              <MenuIcon className="w-6 h-6" />
+              <MenuIcon className="w-5 h-5" />
             </button>
-            <span className="font-bold text-slate-900 truncate max-w-[120px] sm:max-w-xs">
-              {restaurant?.name || "AmarMenu"}
-            </span>
-            <RoleBadge role={role} compact />
+            <h1 className="text-base font-semibold text-slate-900 truncate">
+              {currentPageTitle}
+            </h1>
           </div>
 
-          {/* Desktop Left Breadcrumb / Context */}
-          <div className="hidden lg:flex items-center space-x-3">
-            <span className="text-sm font-semibold text-slate-800">
-              {restaurant?.name || "Restaurant Hub"}
-            </span>
-            <span className="text-slate-300">•</span>
-            <RoleBadge role={role} />
+          {/* Desktop Left: Current Page Title */}
+          <div className="hidden lg:flex items-center whitespace-nowrap">
+            <h1 className="text-base font-semibold text-slate-900">
+              {currentPageTitle}
+            </h1>
           </div>
 
           {/* Central Role-based Search Bar */}
-          <div className="hidden sm:flex flex-1 max-w-sm md:max-w-md mx-4 justify-center">
-            <RoleBasedSearchBar />
+          <div className="hidden sm:flex flex-1 max-w-xs md:max-w-sm mx-4 justify-center">
+            <RoleBasedSearchBar compact />
           </div>
 
-          {/* Right Utilities: Time & Status */}
-          <div className="flex items-center space-x-4">
+          {/* Right Utilities: Plain-text Time & Outline View Menu Button */}
+          <div className="flex items-center space-x-3 sm:space-x-4 whitespace-nowrap flex-shrink-0">
             {currentTime && (
-              <div className="hidden sm:flex items-center space-x-1.5 text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full">
-                <Clock className="w-3.5 h-3.5 text-orange-500" />
-                <span className="font-medium">{currentTime}</span>
-                <span className="text-slate-400 font-normal">Dhaka</span>
+              <div className="hidden md:flex items-center space-x-1.5 text-xs text-slate-500 whitespace-nowrap select-none">
+                <Clock className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                <span className="font-medium text-slate-600">{currentTime}</span>
+                <span className="text-slate-400 text-[11px]">BST</span>
               </div>
             )}
-
-            {/* My Profile Quick Link */}
-            <Link
-              to="/restaurant/profile"
-              className="inline-flex items-center space-x-1.5 text-xs font-semibold text-slate-700 hover:text-orange-600 bg-slate-100 hover:bg-slate-200/80 border border-slate-200 px-3 py-1.5 rounded-lg transition-colors"
-              title="My Profile & Work History"
-            >
-              <UserIcon className="w-3.5 h-3.5 text-slate-500" />
-              <span className="hidden md:inline">My Profile</span>
-            </Link>
 
             {/* Public Menu Quick Link */}
             {restaurant?.slug && (
@@ -551,10 +562,11 @@ const RestaurantDashboard: React.FC = () => {
                 href={`/menu/${restaurant.slug}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hidden sm:inline-flex items-center space-x-1.5 text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100/80 border border-orange-200 px-3 py-1.5 rounded-lg transition-colors"
+                className="inline-flex items-center space-x-1.5 text-xs font-medium text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap shadow-2xs"
+                title="View Customer Menu"
               >
                 <span>View Menu</span>
-                <ExternalLink className="w-3.5 h-3.5" />
+                <ExternalLink className="w-3 h-3 text-slate-400" />
               </a>
             )}
           </div>

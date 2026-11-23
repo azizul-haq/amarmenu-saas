@@ -29,7 +29,10 @@ interface SearchResultRestaurant {
   is_active: boolean;
 }
 
-export const RoleBasedSearchBar: React.FC<{ className?: string }> = ({ className = "" }) => {
+export const RoleBasedSearchBar: React.FC<{ className?: string; compact?: boolean }> = ({
+  className = "",
+  compact = false,
+}) => {
   const { role, restaurantId } = useAuth();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
@@ -153,13 +156,16 @@ export const RoleBasedSearchBar: React.FC<{ className?: string }> = ({ className
   }, [query, role, restaurantId]);
 
   const getPlaceholder = () => {
+    if (compact) {
+      return "Search orders, tables... (Ctrl+K)";
+    }
     if (role === "super_admin") {
-      return "Search restaurants (name, city, email) or invoices... (Ctrl+K)";
+      return "Search restaurants or invoices... (Ctrl+K)";
     }
     if (role === "kitchen" || role === "waiter") {
-      return "Search active tickets (table #, order #, dish name)... (Ctrl+K)";
+      return "Search active tickets... (Ctrl+K)";
     }
-    return "Search orders (customer, phone, order #, dish name)... (Ctrl+K)";
+    return "Search orders (customer, phone, order #)... (Ctrl+K)";
   };
 
   const handleSelectOrder = (_orderId: string) => {
@@ -181,7 +187,7 @@ export const RoleBasedSearchBar: React.FC<{ className?: string }> = ({ className
   return (
     <div ref={dropdownRef} className={`relative ${className}`}>
       <div className="relative">
-        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         <input
           ref={inputRef}
           type="text"
@@ -192,7 +198,9 @@ export const RoleBasedSearchBar: React.FC<{ className?: string }> = ({ className
             setIsOpen(true);
           }}
           placeholder={getPlaceholder()}
-          className="w-64 sm:w-80 md:w-96 pl-9 pr-8 py-1.5 bg-slate-100 hover:bg-slate-200/70 focus:bg-white border border-transparent focus:border-orange-500 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-all shadow-inner"
+          className={`w-full ${
+            compact ? "max-w-[240px] sm:max-w-xs md:max-w-sm" : "w-64 sm:w-80 md:w-96"
+          } pl-8 pr-7 py-1.5 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 focus:border-slate-400 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-colors shadow-2xs`}
         />
         {query && (
           <button
@@ -201,7 +209,7 @@ export const RoleBasedSearchBar: React.FC<{ className?: string }> = ({ className
               setOrderResults([]);
               setRestaurantResults([]);
             }}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded"
           >
             <X className="w-3.5 h-3.5" />
           </button>

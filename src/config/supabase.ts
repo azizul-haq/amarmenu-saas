@@ -400,6 +400,20 @@ export interface ZReportData {
   notes?: string | null;
 }
 
+export interface StaffActivityLog {
+  id: string;
+  restaurant_id: string;
+  actor_user_id?: string | null;
+  actor_name: string;
+  actor_role: string;
+  action: string;
+  entity_type: string;
+  entity_id?: string | null;
+  summary: string;
+  metadata?: Record<string, any>;
+  created_at: string;
+}
+
 export interface OnlinePaymentSession {
   id: string;
   tran_id: string;

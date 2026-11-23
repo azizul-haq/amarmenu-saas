@@ -13,14 +13,16 @@ import {
   Trash2,
   Eye,
   EyeOff,
+  Activity,
 } from "lucide-react";
 import { Card, Button, Input, Select, Modal, Alert, Loading } from "../../components/ui";
 import { supabase } from "../../config/supabase";
 import { useAuth } from "../../context/AuthContext";
-import type { RestaurantStaff } from "../../config/supabase";
-import { copyToClipboard as copyTextToClipboard } from "../../utils/helpers";
+import type { RestaurantStaff, StaffActivityLog } from "../../config/supabase";
+import { copyToClipboard as copyTextToClipboard, formatDateTime } from "../../utils/helpers";
 import { invokeStaffAction } from "../../services/staffService";
 import { usePlanLimits, UpgradePlanBanner } from "../../hooks/usePlanLimits";
+import { getTeamActivityLogs } from "../../services/staffActivityService";
 
 export const StaffPage: React.FC = () => {
   const { user, restaurant, role: currentUserRole } = useAuth();
@@ -54,6 +56,43 @@ export const StaffPage: React.FC = () => {
   const [copied, setCopied] = useState(false);
 
   const isOwner = currentUserRole === "owner";
+  const canViewActivity = isOwner || currentUserRole === "manager";
+  const hasActivityFeature = planLimits.hasFeature("activity_history");
+
+  // Tab state: "directory" vs "activity"
+  const [activeTab, setActiveTab] = useState<"directory" | "activity">("directory");
+
+  // Team Activity Logs state
+  const [teamLogs, setTeamLogs] = useState<StaffActivityLog[]>([]);
+  const [teamLogsLoading, setTeamLogsLoading] = useState(false);
+  const [selectedRoleFilter, setSelectedRoleFilter] = useState("all");
+  const [selectedActorFilter, setSelectedActorFilter] = useState("all");
+  const [selectedDateRange, setSelectedDateRange] = useState<"today" | "week" | "month" | "all">("today");
+
+  const fetchTeamActivity = useCallback(async () => {
+    if (!restaurant?.id) return;
+    setTeamLogsLoading(true);
+    try {
+      const res = await getTeamActivityLogs({
+        restaurantId: restaurant.id,
+        role: selectedRoleFilter,
+        actorId: selectedActorFilter,
+        dateRange: selectedDateRange,
+        limit: 100,
+      });
+      setTeamLogs(res.data || []);
+    } catch {
+      // ignore
+    } finally {
+      setTeamLogsLoading(false);
+    }
+  }, [restaurant?.id, selectedRoleFilter, selectedActorFilter, selectedDateRange]);
+
+  useEffect(() => {
+    if (activeTab === "activity" && hasActivityFeature) {
+      fetchTeamActivity();
+    }
+  }, [activeTab, hasActivityFeature, fetchTeamActivity]);
 
   const fetchStaff = useCallback(async () => {
     if (!restaurant?.id) return;
@@ -276,6 +315,38 @@ export const StaffPage: React.FC = () => {
     }
   };
 
+  const getActivityActionBadge = (action: string) => {
+    switch (action) {
+      case "order_served":
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 border border-teal-200">Served</span>;
+      case "order_accepted":
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">Confirmed</span>;
+      case "order_preparing":
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">Cooking</span>;
+      case "order_ready":
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-200">Ready</span>;
+      case "bill_settled":
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Settled</span>;
+      case "order_voided":
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">Voided</span>;
+      case "order_rejected":
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-200">Rejected</span>;
+      case "menu_stock_toggled":
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">Stock Toggle</span>;
+      case "shift_opened":
+      case "shift_closed":
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">Cash Shift</span>;
+      case "staff_added":
+      case "staff_updated":
+      case "staff_deactivated":
+      case "staff_activated":
+      case "staff_role_changed":
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-100 text-cyan-800 border border-cyan-200">Staff Admin</span>;
+      default:
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-700 border border-gray-200">Action</span>;
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -314,7 +385,48 @@ export const StaffPage: React.FC = () => {
         )}
       </div>
 
-      {/* Plan Limit Banner */}
+      {/* Navigation Tabs */}
+      <div className="flex border-b border-gray-200">
+        <button
+          type="button"
+          onClick={() => setActiveTab("directory")}
+          className={`flex items-center gap-2 py-3 px-5 border-b-2 font-bold text-sm transition-all ${
+            activeTab === "directory"
+              ? "border-orange-500 text-orange-600 bg-orange-50/50"
+              : "border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300"
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>Team Directory</span>
+          <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full text-xs font-semibold">
+            {staffList.length}
+          </span>
+        </button>
+
+        {canViewActivity && (
+          <button
+            type="button"
+            onClick={() => setActiveTab("activity")}
+            className={`flex items-center gap-2 py-3 px-5 border-b-2 font-bold text-sm transition-all ${
+              activeTab === "activity"
+                ? "border-orange-500 text-orange-600 bg-orange-50/50"
+                : "border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300"
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+            <span>Staff Activity History</span>
+            {!hasActivityFeature && (
+              <span className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.5 rounded font-extrabold uppercase">
+                Growth+
+              </span>
+            )}
+          </button>
+        )}
+      </div>
+
+      {activeTab === "directory" ? (
+        <>
+          {/* Plan Limit Banner */}
       {!planLimits.canAddStaff(staffList.length) && (
         <UpgradePlanBanner
           featureName="Additional Staff Accounts"
@@ -485,6 +597,163 @@ export const StaffPage: React.FC = () => {
           </table>
         </div>
       </Card>
+      </>
+      ) : (
+        /* Team Activity History Tab Content */
+        <div className="space-y-6">
+          {!hasActivityFeature ? (
+            <UpgradePlanBanner
+              featureName="Staff Activity History"
+              description="Role-wise staff activity tracking, order handling logs, and team audit history are available on Growth and Enterprise plans."
+              requiredPlan="growth"
+            />
+          ) : (
+            <>
+              {/* Filter Controls Bar */}
+              <Card>
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* Role Filter */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                        Filter by Role
+                      </label>
+                      <select
+                        value={selectedRoleFilter}
+                        onChange={(e) => setSelectedRoleFilter(e.target.value)}
+                        className="px-3 py-2 rounded-xl border border-gray-200 bg-white text-xs font-semibold text-gray-800 focus:outline-hidden focus:border-orange-500"
+                      >
+                        <option value="all">All Roles</option>
+                        <option value="owner">Owner</option>
+                        <option value="manager">Manager</option>
+                        <option value="waiter">Waiter</option>
+                        <option value="kitchen">Kitchen Chef</option>
+                        <option value="cashier">Cashier</option>
+                      </select>
+                    </div>
+
+                    {/* Staff Member Filter */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                        Filter by Staff Member
+                      </label>
+                      <select
+                        value={selectedActorFilter}
+                        onChange={(e) => setSelectedActorFilter(e.target.value)}
+                        className="px-3 py-2 rounded-xl border border-gray-200 bg-white text-xs font-semibold text-gray-800 focus:outline-hidden focus:border-orange-500"
+                      >
+                        <option value="all">All Team Members</option>
+                        {staffList.map((s) => (
+                          <option key={s.id} value={s.auth_user_id || s.id}>
+                            {s.full_name} ({s.role})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Date Range Filter */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                        Date Range
+                      </label>
+                      <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl">
+                        {(["today", "week", "month", "all"] as const).map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => setSelectedDateRange(r)}
+                            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                              selectedDateRange === r
+                                ? "bg-white text-orange-600 shadow-xs"
+                                : "text-gray-600 hover:text-gray-900"
+                            }`}
+                          >
+                            {r === "today" ? "Today" : r === "week" ? "7 Days" : r === "month" ? "30 Days" : "All"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="self-end lg:self-center">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={fetchTeamActivity}
+                      loading={teamLogsLoading}
+                      icon={<RefreshCw className="w-3.5 h-3.5" />}
+                    >
+                      Refresh
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Team Activity Feed Table */}
+              <Card>
+                <div className="flex items-center justify-between pb-3 border-b border-gray-100 mb-4">
+                  <div className="flex items-center space-x-2">
+                    <Activity className="w-5 h-5 text-orange-600" />
+                    <h3 className="font-bold text-gray-900 text-sm">
+                      Activity Log Feed ({teamLogs.length} events recorded)
+                    </h3>
+                  </div>
+                </div>
+
+                {teamLogsLoading ? (
+                  <div className="py-16 flex flex-col items-center justify-center text-gray-400 text-xs">
+                    <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mb-2" />
+                    <span>Loading team activity logs...</span>
+                  </div>
+                ) : teamLogs.length === 0 ? (
+                  <div className="py-16 text-center text-gray-400 p-6 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                    <Activity className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                    <p className="text-xs font-semibold text-gray-600">No activity logs found</p>
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      Try adjusting the date range or filters above. When staff process orders, manage shifts, or update menu stock, their activities appear here.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50/75 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          <th className="py-2.5 px-3">Actor</th>
+                          <th className="py-2.5 px-3">Action</th>
+                          <th className="py-2.5 px-3">Summary</th>
+                          <th className="py-2.5 px-3">Time</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {teamLogs.map((log) => (
+                          <tr key={log.id} className="hover:bg-slate-50/60 transition-colors">
+                            <td className="py-3 px-3">
+                              <div className="font-bold text-gray-900">{log.actor_name}</div>
+                              <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-extrabold uppercase ${getRoleBadge(log.actor_role)}`}>
+                                {log.actor_role}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3">
+                              {getActivityActionBadge(log.action)}
+                            </td>
+                            <td className="py-3 px-3 font-medium text-gray-900">
+                              {log.summary}
+                            </td>
+                            <td className="py-3 px-3 text-gray-500 whitespace-nowrap">
+                              {formatDateTime(log.created_at)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Add / Edit Staff Modal */}
       <Modal

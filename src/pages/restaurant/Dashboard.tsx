@@ -29,6 +29,7 @@ import {
   Users,
   AlertTriangle,
   CheckCircle2,
+  User as UserIcon,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { ProtectedRoute } from "../../components/auth/ProtectedRoute";
@@ -49,6 +50,7 @@ import AuditLogsPage from "./AuditLogs";
 import ShiftsPage from "./Shifts";
 import SubscriptionPage from "./Subscription";
 import StaffPage from "./Staff";
+import ProfilePage from "./Profile";
 
 interface NavItem {
   path: string;
@@ -446,31 +448,38 @@ const RestaurantDashboard: React.FC = () => {
         <div className="p-3 border-t border-slate-800/80 bg-slate-950/40">
           <div
             className={`flex items-center ${
-              isCollapsed ? "justify-center" : "justify-between"
+              isCollapsed ? "flex-col gap-2 justify-center" : "justify-between"
             }`}
           >
-            {!isCollapsed && (
-              <div className="flex items-center space-x-3 overflow-hidden">
-                <div className="w-9 h-9 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center text-sm font-bold text-orange-400 flex-shrink-0">
-                  {profile?.full_name?.charAt(0).toUpperCase() ||
-                    user?.email?.charAt(0).toUpperCase() ||
-                    "U"}
-                </div>
-                <div className="truncate">
-                  <p className="text-xs font-semibold text-white truncate">
+            <Link
+              to="/restaurant/profile"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center space-x-3 overflow-hidden rounded-xl p-1.5 -m-1.5 hover:bg-slate-800/80 transition-all group flex-1 min-w-0"
+              title="View & Edit My Profile"
+            >
+              <div className="w-9 h-9 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center text-sm font-bold text-orange-400 group-hover:border-orange-400 transition-colors flex-shrink-0">
+                {profile?.full_name?.charAt(0).toUpperCase() ||
+                  user?.email?.charAt(0).toUpperCase() ||
+                  "U"}
+              </div>
+              {!isCollapsed && (
+                <div className="truncate text-left">
+                  <p className="text-xs font-semibold text-white group-hover:text-orange-400 transition-colors truncate">
                     {profile?.full_name || user?.email?.split("@")[0] || "Staff Member"}
                   </p>
                   <p className="text-[11px] text-orange-400 capitalize font-medium flex items-center space-x-1">
                     <span>{profile?.role || "Staff"}</span>
+                    <span className="text-slate-500">•</span>
+                    <span className="text-[10px] text-slate-400 group-hover:text-white transition-colors">Profile</span>
                   </p>
                 </div>
-              </div>
-            )}
+              )}
+            </Link>
 
             <button
               onClick={handleLogout}
               className={`p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors ${
-                isCollapsed ? "w-full flex justify-center" : ""
+                isCollapsed ? "w-full flex justify-center" : "flex-shrink-0"
               }`}
               title="Sign Out"
             >
@@ -525,6 +534,16 @@ const RestaurantDashboard: React.FC = () => {
                 <span className="text-slate-400 font-normal">Dhaka</span>
               </div>
             )}
+
+            {/* My Profile Quick Link */}
+            <Link
+              to="/restaurant/profile"
+              className="inline-flex items-center space-x-1.5 text-xs font-semibold text-slate-700 hover:text-orange-600 bg-slate-100 hover:bg-slate-200/80 border border-slate-200 px-3 py-1.5 rounded-lg transition-colors"
+              title="My Profile & Work History"
+            >
+              <UserIcon className="w-3.5 h-3.5 text-slate-500" />
+              <span className="hidden md:inline">My Profile</span>
+            </Link>
 
             {/* Public Menu Quick Link */}
             {restaurant?.slug && (
@@ -708,6 +727,7 @@ const RestaurantDashboard: React.FC = () => {
                   </ProtectedRoute>
                 }
               />
+              <Route path="profile" element={<ProfilePage />} />
               <Route path="*" element={<Navigate to="/restaurant" replace />} />
             </Routes>
           )}

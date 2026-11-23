@@ -44,6 +44,8 @@ function AppContent() {
           <Route path="/set-password" element={<SetPasswordPage />} />
 
           {/* Restaurant Dashboard Routes - Protected */}
+          <Route path="/dashboard/profile" element={<Navigate to="/restaurant/profile" replace />} />
+          <Route path="/dashboard/*" element={<Navigate to="/restaurant" replace />} />
           <Route
             path="/restaurant/*"
             element={

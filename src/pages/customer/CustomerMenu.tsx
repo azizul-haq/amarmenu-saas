@@ -27,7 +27,7 @@ import {
   verifyTableQRToken,
 } from "../../services/restaurantService";
 import type { MenuItem, Restaurant, RestaurantTable } from "../../config/supabase";
-import { formatCurrency } from "../../utils/helpers";
+import { formatCurrency, generateUUID } from "../../utils/helpers";
 import { customerCheckoutSchema } from "../../schemas/orderSchema";
 import { supabase } from "../../config/supabase";
 import {
@@ -984,7 +984,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() => generateUUID());
 
   // Live Tables Realtime State
   const [tables, setTables] = useState<RestaurantTable[]>([]);
@@ -1140,7 +1140,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
     } else {
       setError(orderError?.message || "Failed to place order. Please try again.");
       // Regenerate idempotency key on failure so retry is permitted
-      setIdempotencyKey(crypto.randomUUID());
+      setIdempotencyKey(generateUUID());
     }
   };
 

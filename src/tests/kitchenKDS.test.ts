@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { recordKOTPrint } from "../services/restaurantService";
+import { generateUUID } from "../utils/uuid";
 import { supabase } from "../config/supabase";
 import { getServiceRoleClient } from "./serviceRoleClient";
 import { getTestCredentials } from "./testCredentials";
@@ -90,7 +91,7 @@ describe("Kitchen Display System (KDS) & KOT Thermal Print Tracking (Chunk 12)",
           quantity: 2,
         },
       ],
-      p_idempotency_key: crypto.randomUUID(),
+      p_idempotency_key: generateUUID(),
     });
 
     if (placeError || !placeData) {

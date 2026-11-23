@@ -5,6 +5,7 @@ import {
   initiateOnlinePayment,
   generateMockTrxId,
 } from "../services/onlinePaymentService";
+import { generateUUID } from "../utils/uuid";
 import type { PaymentCompletionResult } from "../schemas/onlinePaymentSchema";
 import { getServiceRoleClient } from "./serviceRoleClient";
 import { getTestCredentials } from "./testCredentials";
@@ -116,7 +117,7 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
           quantity: 2, // 2 x 350 = 700 + 5% tax = 735
         },
       ],
-      p_idempotency_key: crypto.randomUUID(),
+      p_idempotency_key: generateUUID(),
     };
 
     if (isDineIn) {
@@ -198,7 +199,7 @@ describe("Chunk 19 & 19b: Online Payment Gateways, Security Lockdown & Auto-Sett
     });
 
     it("rejects payment initiation for non-existent orders with P0003", async () => {
-      const fakeOrderId = crypto.randomUUID();
+      const fakeOrderId = generateUUID();
       const res = await initiateOnlinePayment(fakeOrderId, "bkash");
       expect(res.success).toBe(false);
       expect(res.error).toContain("Order not found");

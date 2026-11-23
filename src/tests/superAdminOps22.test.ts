@@ -4,6 +4,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { assertStagingEnvironment } from "./stagingGuard";
 import { getServiceRoleClient } from "./serviceRoleClient";
 import { getTestCredentials } from "./testCredentials";
+import { generateUUID } from "../utils/uuid";
 
 describe("Chunk 22: Super Admin Operations Hardening & Platform Audit Log", () => {
   let anonClient: SupabaseClient;
@@ -332,7 +333,7 @@ describe("Chunk 22: Super Admin Operations Hardening & Platform Audit Log", () =
 
     it("audits registration request approval and rejection", async () => {
       // 1. Create a dummy pending registration request
-      const reqId = crypto.randomUUID();
+      const reqId = generateUUID();
       await serviceRole.query(
         `INSERT INTO registration_requests (id, restaurant_name, owner_name, email, phone, city, restaurant_type, status)
          VALUES ($1, 'Audit Reject Test', 'Audit Tester', 'audit_reject@test.com', '01711999888', 'Dhaka', 'fine_dining', 'pending')`,
@@ -360,7 +361,7 @@ describe("Chunk 22: Super Admin Operations Hardening & Platform Audit Log", () =
       expect(rejectLogs[0].reason).toBe("Test rejection audit trail verification");
 
       // 2. Create another pending registration request to approve
-      const approveReqId = crypto.randomUUID();
+      const approveReqId = generateUUID();
       await serviceRole.query(
         `INSERT INTO registration_requests (id, restaurant_name, owner_name, email, phone, city, restaurant_type, status)
          VALUES ($1, 'Audit Approve Test', 'Audit Tester 2', 'audit_approve@test.com', '01711999889', 'Dhaka', 'fine_dining', 'pending')`,
@@ -577,7 +578,7 @@ describe("Chunk 22: Super Admin Operations Hardening & Platform Audit Log", () =
 
   describe("6. Transaction Atomicity & State Rollback on Failure", () => {
     it("ensures state change and audit log are atomic: failure rolls back entire transaction", async () => {
-      const nonExistentRestId = crypto.randomUUID();
+      const nonExistentRestId = generateUUID();
 
       // Count audit logs before
       const countBefore = await serviceRole.query<{ count: string }>(

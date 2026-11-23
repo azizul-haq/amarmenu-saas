@@ -257,3 +257,5 @@ export const playSound = (
 ) => {
   playNotificationSound();
 };
+
+export { generateUUID } from "./uuid";

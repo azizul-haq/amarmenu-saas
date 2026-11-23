@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { getServiceRoleClient } from "./serviceRoleClient";
 import { getTestCredentials } from "./testCredentials";
+import { generateUUID } from "../utils/uuid";
 
 describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist", () => {
   let anonClient: SupabaseClient;
@@ -126,7 +127,7 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
       p_customer_name: "Privilege Test Customer",
       p_customer_phone: phoneA,
       p_items: [{ menu_item_id: (itemDataA as { id: string }).id, quantity: 1 }],
-      p_idempotency_key: crypto.randomUUID(),
+      p_idempotency_key: generateUUID(),
     });
     if (orderErrA || !orderDataA) {
       throw new Error(`Failed to place order A: ${orderErrA?.message}`);
@@ -147,7 +148,7 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
       p_customer_name: "Customer Rest B",
       p_customer_phone: phoneB,
       p_items: [{ menu_item_id: itemBId, quantity: 1 }],
-      p_idempotency_key: crypto.randomUUID(),
+      p_idempotency_key: generateUUID(),
     });
     if (orderErrB || !orderDataB) {
       throw new Error(`Failed to place order B: ${orderErrB?.message}`);
@@ -369,7 +370,7 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
 
     it("denies waiter from calling approve_registration_request (Super Admin required)", async () => {
       const { error } = await waiterAClient.rpc("approve_registration_request", {
-        p_request_id: crypto.randomUUID(),
+        p_request_id: generateUUID(),
         p_subscription_plan: "growth",
       });
       expect(error).not.toBeNull();
@@ -387,7 +388,7 @@ describe("Chunk 19c: Function Privilege Hardening & Security Definer Allowlist",
 
     it("denies waiter from calling verify_subscription_payment (Super Admin required)", async () => {
       const { error } = await waiterAClient.rpc("verify_subscription_payment", {
-        p_invoice_id: crypto.randomUUID(),
+        p_invoice_id: generateUUID(),
         p_action: "approve",
         p_amount: 1000,
         p_rejection_reason: null,

@@ -8,6 +8,7 @@ import {
   formatDate,
   formatTime,
   copyToClipboard,
+  generateUUID,
 } from "./helpers";
 import { APP_CONFIG } from "../config/config";
 import { vi } from "vitest";
@@ -216,6 +217,47 @@ describe("Bangladesh Localization & Configuration", () => {
       expect(result).toBe(true);
       expect(execCommandMock).toHaveBeenCalledWith("copy");
       expect(mockTextArea.value).toBe("http://192.168.0.103:5173/set-password?email=test@example.com");
+    });
+  });
+
+  describe("generateUUID", () => {
+    it("should generate a valid RFC4122 v4 UUID format", () => {
+      const uuid = generateUUID();
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      expect(uuid).toMatch(uuidRegex);
+    });
+
+    it("should generate unique identifiers on successive calls", () => {
+      const set = new Set<string>();
+      for (let i = 0; i < 100; i++) {
+        set.add(generateUUID());
+      }
+      expect(set.size).toBe(100);
+    });
+
+    it("should work when crypto.randomUUID is undefined (e.g. non-HTTPS / HTTP IP access)", () => {
+      const originalCrypto = globalThis.crypto;
+      try {
+        // Simulate non-secure context where randomUUID is not exposed
+        const mockCrypto = {
+          getRandomValues: originalCrypto?.getRandomValues?.bind(originalCrypto),
+        } as any;
+        Object.defineProperty(globalThis, "crypto", {
+          value: mockCrypto,
+          configurable: true,
+          writable: true,
+        });
+
+        const fallbackUUID = generateUUID();
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        expect(fallbackUUID).toMatch(uuidRegex);
+      } finally {
+        Object.defineProperty(globalThis, "crypto", {
+          value: originalCrypto,
+          configurable: true,
+          writable: true,
+        });
+      }
     });
   });
 });

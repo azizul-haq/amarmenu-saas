@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { getTestCredentials } from "./testCredentials";
+import { generateUUID } from "../utils/uuid";
 
 describe("Atomic place_order Procedure, Anti-Tampering & Idempotency", () => {
   let anonClient: SupabaseClient;
@@ -82,7 +83,7 @@ describe("Atomic place_order Procedure, Anti-Tampering & Idempotency", () => {
 
   describe("Server-Side Price Calculation & Anti-Tampering", () => {
     it("places a legitimate order and computes gap-free order number, subtotal, and VAT", async () => {
-      const idempotencyKey = crypto.randomUUID();
+      const idempotencyKey = generateUUID();
       const phone = "+8801719999001";
 
       const orderPayload = {
@@ -181,7 +182,7 @@ describe("Atomic place_order Procedure, Anti-Tampering & Idempotency", () => {
 
   describe("Idempotency Protection", () => {
     it("returns existing order without duplicate insertion on same idempotency_key", async () => {
-      const idempotencyKey = crypto.randomUUID();
+      const idempotencyKey = generateUUID();
       const phone = "+8801719999004";
 
       const payload = {
@@ -287,7 +288,7 @@ describe("Atomic place_order Procedure, Anti-Tampering & Idempotency", () => {
           p_customer_name: `Spam ${i}`,
           p_customer_phone: spamPhone,
           p_items: [{ menu_item_id: testItemId, quantity: 1 }],
-          p_idempotency_key: crypto.randomUUID(),
+          p_idempotency_key: generateUUID(),
         });
         expect(error).toBeNull();
       }
@@ -299,7 +300,7 @@ describe("Atomic place_order Procedure, Anti-Tampering & Idempotency", () => {
         p_customer_name: "Spam 6",
         p_customer_phone: spamPhone,
         p_items: [{ menu_item_id: testItemId, quantity: 1 }],
-        p_idempotency_key: crypto.randomUUID(),
+        p_idempotency_key: generateUUID(),
       });
 
       expect(error).not.toBeNull();

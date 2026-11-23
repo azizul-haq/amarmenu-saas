@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Minus, Trash2, Search, Utensils, ShoppingBag, CheckCircle2, User, Phone } from "lucide-react";
 import { Modal, Button, Alert } from "../ui";
-import { formatCurrency } from "../../utils/helpers";
+import { formatCurrency, generateUUID } from "../../utils/helpers";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../config/supabase";
 import { createOrder, updateOrderStatus } from "../../services/restaurantService";
@@ -174,7 +174,7 @@ export const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
         order_type: orderType,
         table_number: orderType === "dine_in" ? tableNumber : undefined,
         qr_token: orderType === "dine_in" && selectedTable?.qr_token ? selectedTable.qr_token : undefined,
-        idempotency_key: crypto.randomUUID(),
+        idempotency_key: generateUUID(),
         customer_name: customerName.trim() || "Walking Customer",
         customer_phone: customerPhone.trim() || "01700000000",
         items: cart.map((c) => ({

@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../config/config";
 import { getServiceRoleClient } from "./serviceRoleClient";
 import { getTestCredentials } from "./testCredentials";
+import { generateUUID } from "../utils/uuid";
 
 describe("Chunk 20d: Privilege Gaps, Column Hardening & Billing Protection", () => {
   let anonClient: SupabaseClient;
@@ -423,7 +424,7 @@ describe("Chunk 20d: Privilege Gaps, Column Hardening & Billing Protection", () 
 
     it("denies authenticated staff and anon from writing to platform_admins (42501)", async () => {
       const { error: wErr } = await waiterClient.from("platform_admins").insert({
-        auth_user_id: crypto.randomUUID(),
+        auth_user_id: generateUUID(),
         email: "hacked_admin@example.com",
         role: "super_admin",
       } as any);
@@ -431,7 +432,7 @@ describe("Chunk 20d: Privilege Gaps, Column Hardening & Billing Protection", () 
       expect(wErr?.code).toBe("42501");
 
       const { error: anonErr } = await anonClient.from("platform_admins").insert({
-        auth_user_id: crypto.randomUUID(),
+        auth_user_id: generateUUID(),
         email: "anon_hacked@example.com",
         role: "super_admin",
       } as any);
@@ -484,7 +485,7 @@ describe("Chunk 20d: Privilege Gaps, Column Hardening & Billing Protection", () 
             quantity: 1,
           },
         ],
-        p_idempotency_key: crypto.randomUUID(),
+        p_idempotency_key: generateUUID(),
       };
 
       const { data: placedOrder, error: orderErr } = await anonClient.rpc(

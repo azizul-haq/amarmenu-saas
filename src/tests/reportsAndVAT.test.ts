@@ -8,6 +8,7 @@ import {
 } from "../services/reportService";
 import { settleOrderBill } from "../services/restaurantService";
 import { getTestCredentials } from "./testCredentials";
+import { generateUUID } from "../utils/uuid";
 
 describe("Chunk 16: Sales Analytics & Bangladesh NBR Mushak-6.3 VAT Reports", () => {
   let anonClient: SupabaseClient;
@@ -112,7 +113,7 @@ describe("Chunk 16: Sales Analytics & Bangladesh NBR Mushak-6.3 VAT Reports", ()
         { menu_item_id: testItemId1, quantity: 2 }, // 2 x 2500 = 5000
         { menu_item_id: testItemId2, quantity: 1 }, // 1 x 4000 = 4000
       ], // Subtotal = 9000, VAT 5% = 450, Total = 9450
-      p_idempotency_key: crypto.randomUUID(),
+      p_idempotency_key: generateUUID(),
     });
     if (orderErr || !orderData) throw new Error(`Order placement failed: ${orderErr?.message}`);
 

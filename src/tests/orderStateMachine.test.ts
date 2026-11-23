@@ -5,6 +5,7 @@ import { supabase } from "../config/supabase";
 import { updateOrderStatus, getOrderStatusHistory } from "../services/restaurantService";
 import { getTestCredentials } from "./testCredentials";
 import { getServiceRoleClient } from "./serviceRoleClient";
+import { generateUUID } from "../utils/uuid";
 
 describe("Order State Machine, Server Transitions & Waiter Verification (Chunk 11)", () => {
   let anonClient: SupabaseClient;
@@ -89,7 +90,7 @@ describe("Order State Machine, Server Transitions & Waiter Verification (Chunk 1
           quantity: 1,
         },
       ],
-      p_idempotency_key: crypto.randomUUID(),
+      p_idempotency_key: generateUUID(),
     });
 
     if (error || !data) {

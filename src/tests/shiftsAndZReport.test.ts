@@ -10,6 +10,7 @@ import {
 } from "../services/shiftService";
 import { settleOrderBill } from "../services/restaurantService";
 import { getTestCredentials } from "./testCredentials";
+import { generateUUID } from "../utils/uuid";
 
 describe("Chunk 15: Cash Drawer Shifts, EOD Z-Report & Cash Reconciliation", () => {
   let anonClient: SupabaseClient;
@@ -95,7 +96,7 @@ describe("Chunk 15: Cash Drawer Shifts, EOD Z-Report & Cash Reconciliation", () 
       p_customer_name: "Shift Customer",
       p_customer_phone: `+88017${Date.now().toString().slice(-8)}`,
       p_items: [{ menu_item_id: testItemId, quantity: 1 }],
-      p_idempotency_key: crypto.randomUUID(),
+      p_idempotency_key: generateUUID(),
     });
 
     if (orderError || !orderData) {
@@ -224,7 +225,7 @@ describe("Chunk 15: Cash Drawer Shifts, EOD Z-Report & Cash Reconciliation", () 
       expect(openData).toBeNull();
 
       const { data: closeData, error: closeError } = await anonClient.rpc("close_cash_shift", {
-        p_shift_id: crypto.randomUUID(),
+        p_shift_id: generateUUID(),
         p_closing_count: 1000,
       });
       expect(closeError).not.toBeNull();

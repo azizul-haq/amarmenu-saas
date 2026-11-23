@@ -7,6 +7,7 @@ import {
   getOrderPayments,
   getOrderItemsNormalized,
 } from "../services/restaurantService";
+import { generateUUID } from "../utils/uuid";
 import { getTestCredentials } from "./testCredentials";
 import { getServiceRoleClient } from "./serviceRoleClient";
 
@@ -120,7 +121,7 @@ describe("Chunk 13: Billing (Cash), Normalized Order Items, Payments & Table Res
           quantity: 2, // 2 x 300 = 600
         },
       ],
-      p_idempotency_key: crypto.randomUUID(),
+      p_idempotency_key: generateUUID(),
     };
 
     if (isDineIn) {

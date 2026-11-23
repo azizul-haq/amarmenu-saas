@@ -9,6 +9,7 @@ import {
   Package,
   Lock,
   ArrowRight,
+  CheckCircle2,
 } from "lucide-react";
 import {
   Card,
@@ -20,10 +21,11 @@ import {
 } from "../../components/ui";
 import {
   subscribeToMenuItems,
+  subscribeToTables,
   createOrder,
   verifyTableQRToken,
 } from "../../services/restaurantService";
-import type { MenuItem, Restaurant } from "../../config/supabase";
+import type { MenuItem, Restaurant, RestaurantTable } from "../../config/supabase";
 import { formatCurrency } from "../../utils/helpers";
 import { customerCheckoutSchema } from "../../schemas/orderSchema";
 import { supabase } from "../../config/supabase";
@@ -930,26 +932,81 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [orderType, setOrderType] = useState<"table" | "takeaway">("table");
-  const [tableNumber, setTableNumber] = useState("");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
+  // Live Tables Realtime State
+  const [tables, setTables] = useState<RestaurantTable[]>([]);
+  const [selectedTableId, setSelectedTableId] = useState<string>(detectedTable?.id || "");
+  const [selectedTableNumber, setSelectedTableNumber] = useState<string>(detectedTable?.table_number || "");
+  const [tablesLoading, setTablesLoading] = useState<boolean>(true);
+
+  // Subscribe to tables live with Supabase Realtime
   useEffect(() => {
-    if (detectedTable) {
-      setOrderType("table");
-      setTableNumber(detectedTable.table_number);
-    }
-  }, [detectedTable]);
+    if (!restaurantId || !isOpen) return;
+
+    let isMounted = true;
+    setTablesLoading(true);
+
+    const subscription = subscribeToTables(restaurantId, (liveTables) => {
+      if (!isMounted) return;
+      const sorted = [...liveTables].sort((a, b) =>
+        a.table_number.localeCompare(b.table_number, undefined, { numeric: true, sensitivity: "base" })
+      );
+      setTables(sorted);
+      setTablesLoading(false);
+
+      if (detectedTable) {
+        const found = sorted.find(
+          (t) => t.id === detectedTable.id || t.table_number === detectedTable.table_number
+        );
+        if (found) {
+          setSelectedTableId(found.id);
+          setSelectedTableNumber(found.table_number);
+        }
+      } else if (qrToken) {
+        const qrMatch = sorted.find((t) => t.qr_token === qrToken);
+        if (qrMatch && qrMatch.status === "available") {
+          setSelectedTableId(qrMatch.id);
+          setSelectedTableNumber(qrMatch.table_number);
+        }
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, [restaurantId, isOpen, detectedTable, qrToken]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (tableError && orderType === "table") {
-      setError(tableError);
-      return;
+    if (orderType === "table") {
+      if (tableError) {
+        setError(tableError);
+        return;
+      }
+      if (!selectedTableId) {
+        setError(
+          lang === "bn"
+            ? "অনুগ্রহ করে ডাইন-ইনের জন্য একটি খালি টেবিল নির্বাচন করুন।"
+            : "Please select an available table for your dine-in order."
+        );
+        return;
+      }
+      const selectedTable = tables.find((t) => t.id === selectedTableId);
+      if (selectedTable && selectedTable.status !== "available") {
+        setError(
+          lang === "bn"
+            ? "এই টেবিলটি ইতোমধ্যে বুকড হয়ে গেছে। অনুগ্রহ করে অন্য খালি টেবিল নির্বাচন করুন।"
+            : "This table is already occupied. Please select another available table."
+        );
+        return;
+      }
     }
 
     // Zod validation with customerCheckoutSchema
@@ -958,7 +1015,8 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
       customer_name: customerName,
       customer_phone: customerPhone,
       order_type: effectiveOrderType,
-      table_number: orderType === "takeaway" ? undefined : (detectedTable ? detectedTable.table_number : tableNumber),
+      table_id: orderType === "takeaway" ? undefined : selectedTableId,
+      table_number: orderType === "takeaway" ? undefined : selectedTableNumber,
       customer_notes: notes || undefined,
     });
 
@@ -974,9 +1032,9 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
     const orderPayload = {
       restaurant_id: restaurantId,
-      table_id: orderType === "takeaway" ? undefined : (detectedTable ? detectedTable.id : undefined),
+      table_id: orderType === "takeaway" ? undefined : selectedTableId,
       order_type: effectiveOrderType as "dine_in" | "takeaway" | "qr" | "counter" | "table",
-      table_number: orderType === "takeaway" ? undefined : validData.table_number,
+      table_number: orderType === "takeaway" ? undefined : selectedTableNumber,
       qr_token: orderType === "takeaway" ? undefined : (detectedTable ? qrToken : undefined),
       idempotency_key: idempotencyKey,
       customer_name: validData.customer_name,
@@ -1059,35 +1117,132 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
         {/* Table Badge if Dine-in with QR detected */}
         {orderType === "table" && detectedTable && (
-          <div className="bg-accent/10 border border-accent/20 rounded-xl p-3 flex items-center justify-between">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 bg-accent text-white rounded-lg flex items-center justify-center">
+              <div className="w-9 h-9 bg-emerald-600 text-white rounded-lg flex items-center justify-center shadow-xs">
                 <Lock className="w-4 h-4" />
               </div>
               <div>
-                <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">
-                  {lang === "bn" ? "ডাইন-ইন টেবিল (QR দ্বারা লকড)" : "Dine-In Table (Locked by QR)"}
+                <p className="text-[10px] text-emerald-700 uppercase font-bold tracking-wider">
+                  {lang === "bn" ? "ডাইন-ইন টেবিল (QR দ্বারা যাচাইকৃত)" : "Dine-In Table (QR Verified)"}
                 </p>
-                <p className="text-base font-extrabold text-gray-900 leading-tight">
+                <p className="text-base font-extrabold text-emerald-950 leading-tight">
                   {detectedTable.table_number}
                 </p>
               </div>
             </div>
-            <span className="text-[11px] bg-success text-white px-2 py-0.5 rounded-full font-bold">
+            <span className="text-[11px] bg-emerald-600 text-white px-2.5 py-1 rounded-full font-bold flex items-center gap-1 shadow-xs">
+              <CheckCircle2 className="w-3 h-3" />
               QR Verified
             </span>
           </div>
         )}
 
-        {/* Manual Table Number if Dine-in without QR */}
+        {/* Live Available Table Grid if Dine-in without QR */}
         {orderType === "table" && !detectedTable && (
-          <Input
-            label={lang === "bn" ? "টেবিল নম্বর" : "Table Number"}
-            value={tableNumber}
-            onChange={(e) => setTableNumber(e.target.value)}
-            placeholder={lang === "bn" ? "যেমন: T-01" : "e.g. T-01"}
-            required
-          />
+          <div className="space-y-2 border border-gray-200 bg-gray-50/70 rounded-xl p-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                <span>{lang === "bn" ? "খালি টেবিল নির্বাচন করুন" : "Select Available Table"}</span>
+                <span className="text-red-500">*</span>
+              </label>
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white border border-gray-200 text-[10px] font-semibold text-gray-600 shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>{lang === "bn" ? "লাইভ আপডেট" : "Live Realtime"}</span>
+              </div>
+            </div>
+
+            {tablesLoading ? (
+              <div className="py-6 flex flex-col items-center justify-center text-gray-400 text-xs">
+                <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mb-2" />
+                <span>{lang === "bn" ? "টেবিল লোড হচ্ছে..." : "Loading tables..."}</span>
+              </div>
+            ) : tables.length === 0 ? (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs text-center font-medium">
+                {lang === "bn"
+                  ? "কোন টেবিল পাওয়া যায়নি। অনুগ্রহ করে কর্মীকে জানান।"
+                  : "No tables found. Please contact restaurant staff."}
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-52 overflow-y-auto pr-1">
+                  {tables.map((t) => {
+                    const isAvailable = t.status === "available";
+                    const isSelected = selectedTableId === t.id;
+
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        disabled={!isAvailable}
+                        onClick={() => {
+                          if (isAvailable) {
+                            setSelectedTableId(t.id);
+                            setSelectedTableNumber(t.table_number);
+                            setError("");
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl border text-center transition-all flex flex-col items-center justify-center relative ${
+                          !isAvailable
+                            ? "border-red-200/80 bg-red-50/60 text-red-400 opacity-60 cursor-not-allowed"
+                            : isSelected
+                            ? "border-emerald-600 bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/30 scale-[1.02]"
+                            : "border-emerald-200 bg-white hover:border-emerald-400 hover:bg-emerald-50/60 text-gray-800"
+                        }`}
+                      >
+                        <span className={`text-xs font-black tracking-tight ${isSelected ? "text-white" : ""}`}>
+                          {t.table_number}
+                        </span>
+                        <span
+                          className={`text-[9px] font-medium mt-0.5 ${
+                            !isAvailable
+                              ? "text-red-500 font-bold"
+                              : isSelected
+                              ? "text-emerald-100"
+                              : "text-emerald-600 font-semibold"
+                          }`}
+                        >
+                          {!isAvailable
+                            ? lang === "bn"
+                              ? "বুকড"
+                              : "Occupied"
+                            : t.capacity
+                            ? `${t.capacity} ${lang === "bn" ? "সিট" : "seats"}`
+                            : lang === "bn"
+                            ? "খালি"
+                            : "Available"}
+                        </span>
+                        {isSelected && (
+                          <span className="absolute -top-1 -right-1 bg-white text-emerald-600 rounded-full p-0.5 shadow-xs">
+                            <CheckCircle2 className="w-3 h-3" />
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Status legend & Selection indicator */}
+                <div className="flex items-center justify-between pt-1 border-t border-gray-200/70 text-[10px] text-gray-500">
+                  <div className="flex items-center gap-3">
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <span>{lang === "bn" ? "খালি" : "Available"}</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-red-400" />
+                      <span>{lang === "bn" ? "বুকড" : "Occupied"}</span>
+                    </span>
+                  </div>
+                  {selectedTableNumber && (
+                    <span className="font-bold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-md">
+                      {lang === "bn" ? `নির্বাচিত: ${selectedTableNumber}` : `Selected: ${selectedTableNumber}`}
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         )}
 
         {/* Customer Name */}

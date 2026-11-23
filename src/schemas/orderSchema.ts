@@ -15,6 +15,7 @@ export const customerCheckoutSchema = z
         message: "Please enter a valid Bangladeshi mobile number (e.g. 01712345678)",
       }),
     order_type: z.enum(["qr", "table", "counter", "takeaway", "dine_in"]),
+    table_id: z.string().uuid().optional(),
     table_number: z.string().trim().optional(),
     customer_notes: z.string().trim().max(500, "Notes cannot exceed 500 characters").optional(),
   })

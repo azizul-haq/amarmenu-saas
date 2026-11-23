@@ -484,6 +484,7 @@ export const createOrder = async (order: PlaceOrderDTO) => {
     p_idempotency_key: order.idempotency_key || null,
     p_client_subtotal: order.subtotal ?? null,
     p_client_total: order.total ?? null,
+    p_table_id: order.table_id || null,
   });
 
   return { data, error };

@@ -573,11 +573,19 @@ const Orders: React.FC = () => {
                       >
                         {/* Top Bar: Table & Elapsed */}
                         <div className="flex items-center justify-between mb-2">
-                          <span className="font-black text-xs px-2.5 py-0.5 rounded-md bg-slate-900 text-white">
-                            {order.order_type === "counter"
-                              ? "Takeaway"
-                              : `Table ${order.table_number || "QR"}`}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-black text-xs px-2.5 py-0.5 rounded-md bg-slate-900 text-white">
+                              {order.order_type === "counter" || order.order_type === "takeaway"
+                                ? "Takeaway"
+                                : `Table ${order.table_number || "QR"}`}
+                            </span>
+                            {order.payment_status === "paid" && (
+                              <span className="font-extrabold text-[10px] px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-0.5 shadow-2xs">
+                                <Check className="w-2.5 h-2.5" />
+                                <span>Paid</span>
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[11px] text-slate-400 font-medium">
                             ⏱ {elapsed}
                           </span>
@@ -674,7 +682,11 @@ const Orders: React.FC = () => {
                                   className="w-full py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
                                 >
                                   <UtensilsCrossed className="w-3.5 h-3.5" />
-                                  <span>Mark as Served</span>
+                                  <span>
+                                    {order.order_type === "counter" || order.order_type === "takeaway"
+                                      ? "Ready for Pickup"
+                                      : "Mark as Served"}
+                                  </span>
                                 </button>
                               )}
 
@@ -692,14 +704,24 @@ const Orders: React.FC = () => {
                                 </div>
                               )}
 
-                              {canSettleBill && (
+                              {order.payment_status === "paid" ? (
                                 <button
-                                  onClick={() => setSettleOrder(order)}
+                                  onClick={() => handleStatusUpdate(order.id, "completed")}
                                   className="w-full py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
                                 >
-                                  <DollarSign className="w-3.5 h-3.5" />
-                                  <span>Settle Bill & Free Table</span>
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                  <span>Hand Over / Complete</span>
                                 </button>
+                              ) : (
+                                canSettleBill && (
+                                  <button
+                                    onClick={() => setSettleOrder(order)}
+                                    className="w-full py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-lg text-xs shadow-xs transition-all flex items-center justify-center space-x-1"
+                                  >
+                                    <DollarSign className="w-3.5 h-3.5" />
+                                    <span>Settle Bill & Free Table</span>
+                                  </button>
+                                )
                               )}
                             </div>
                           )}
@@ -878,16 +900,24 @@ const Orders: React.FC = () => {
                           </td>
 
                           {/* Order Type */}
-                          <td className="py-3.5 px-4">
-                            {isTakeaway ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                                🛍️ Takeaway
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                🍽️ Dine in
-                              </span>
-                            )}
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {isTakeaway ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                  🛍️ Takeaway
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  🍽️ Dine in
+                                </span>
+                              )}
+                              {order.payment_status === "paid" && (
+                                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs">
+                                  <Check className="w-2.5 h-2.5" />
+                                  <span>Paid</span>
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           {/* Date */}
@@ -941,7 +971,20 @@ const Orders: React.FC = () => {
                                   Mark Served
                                 </button>
                               )}
-                              {canSettleBill &&
+                              {order.payment_status === "paid" ? (
+                                (order.status === "ready" || order.status === "served") &&
+                                (canConfirmOrder || canSettleBill || canMarkServed) && (
+                                  <button
+                                    onClick={() => handleStatusUpdate(order.id, "completed")}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors flex items-center gap-1"
+                                    title="Hand Over / Complete order"
+                                  >
+                                    <CheckCircle className="w-3 h-3" />
+                                    <span>Hand Over</span>
+                                  </button>
+                                )
+                              ) : (
+                                canSettleBill &&
                                 (order.status === "ready" ||
                                   order.status === "served" ||
                                   order.status === "accepted" ||
@@ -952,7 +995,8 @@ const Orders: React.FC = () => {
                                   >
                                     Settle
                                   </button>
-                                )}
+                                )
+                              )}
                               <button
                                 onClick={() => handleViewDetails(order)}
                                 className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
@@ -1248,6 +1292,22 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               <p className="font-bold text-orange-600">
                 {order.waiter_name || order.accepted_by_name || "Pending Confirmation"}
               </p>
+            </div>
+            <div>
+              <p className="text-text-secondary">Payment Status</p>
+              <div className="pt-0.5">
+                {order.payment_status === "paid" ? (
+                  <span className="inline-flex items-center gap-1 font-bold text-xs text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-300">
+                    <Check className="w-3 h-3" />
+                    <span>Paid ({order.payment_method?.toUpperCase() || "ONLINE"})</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 font-bold text-xs text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300">
+                    <Clock className="w-3 h-3" />
+                    <span>Unpaid</span>
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>

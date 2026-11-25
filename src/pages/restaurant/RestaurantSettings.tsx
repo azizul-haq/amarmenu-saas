@@ -403,21 +403,6 @@ const RestaurantSettings: React.FC = () => {
           </div>
         </div>
       </Card>
-
-      {/* Additional Settings Placeholder */}
-      <Card className="bg-bg-subtle">
-        <h3 className="text-lg font-bold text-text mb-3">
-          Additional Settings (Coming Soon)
-        </h3>
-        <ul className="space-y-2 text-text-secondary text-sm">
-          <li>• Update restaurant profile and contact info</li>
-          <li>• Upload logo and cover images</li>
-          <li>• Customize ordering page theme</li>
-          <li>• Set business hours and holidays</li>
-          <li>• Configure tax rates and payment methods</li>
-          <li>• Change password and security settings</li>
-        </ul>
-      </Card>
     </div>
   );
 };

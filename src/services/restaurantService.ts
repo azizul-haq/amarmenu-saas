@@ -348,7 +348,7 @@ export const deleteCategory = async (categoryId: string) => {
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", categoryId);
 
-  return !error;
+  return { success: !error, error: error?.message };
 };
 
 // Subscribe to menu items with real-time updates (filters out soft-deleted items)

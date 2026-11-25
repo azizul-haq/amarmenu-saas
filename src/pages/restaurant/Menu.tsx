@@ -24,6 +24,7 @@ import {
   Alert,
   Textarea,
   Select,
+  useToast,
 } from "../../components/ui";
 import {
   subscribeToMenuItems,
@@ -33,6 +34,7 @@ import {
   deleteMenuItem,
   toggleMenuItemAvailability,
   createCategory,
+  updateCategory,
   deleteCategory,
 } from "../../services/restaurantService";
 import type { MenuItem, MenuCategory } from "../../config/supabase";
@@ -336,6 +338,7 @@ const Menu: React.FC = () => {
         categories={categories}
         restaurantId={restaurantId || ""}
         onClose={() => setShowCategoryModal(false)}
+        onCategoriesChange={setCategories}
       />
 
       {/* Soft Delete Modal */}
@@ -894,6 +897,7 @@ const ItemModal: React.FC<ItemModalProps> = ({
 };
 
 // ============================================================================
+// ============================================================================
 // Categories Management Modal
 // ============================================================================
 interface CategoriesModalProps {
@@ -901,6 +905,7 @@ interface CategoriesModalProps {
   categories: MenuCategory[];
   restaurantId: string;
   onClose: () => void;
+  onCategoriesChange: (categories: MenuCategory[]) => void;
 }
 
 const CategoriesModal: React.FC<CategoriesModalProps> = ({
@@ -908,48 +913,133 @@ const CategoriesModal: React.FC<CategoriesModalProps> = ({
   categories,
   restaurantId,
   onClose,
+  onCategoriesChange,
 }) => {
+  const toast = useToast();
   const [name, setName] = useState("");
   const [nameBn, setNameBn] = useState("");
+  const [editingCategory, setEditingCategory] = useState<MenuCategory | null>(null);
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  const handleCreateCategory = async (e: React.FormEvent) => {
+  // Reset state when modal is closed
+  useEffect(() => {
+    if (!isOpen) {
+      setName("");
+      setNameBn("");
+      setEditingCategory(null);
+      setError("");
+      setLoading(false);
+      setDeletingId(null);
+    }
+  }, [isOpen]);
+
+  const handleStartEdit = (cat: MenuCategory) => {
+    setEditingCategory(cat);
+    setName(cat.name);
+    setNameBn(cat.name_bn || "");
+    setError("");
+  };
+
+  const handleCancelEdit = () => {
+    setEditingCategory(null);
+    setName("");
+    setNameBn("");
+    setError("");
+  };
+
+  const handleCreateOrUpdateCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
+    const trimmedName = name.trim();
+    const trimmedNameBn = nameBn.trim() || undefined;
+
     const parsed = menuCategorySchema.safeParse({
-      name: name.trim(),
-      name_bn: nameBn.trim() || undefined,
-      display_order: categories.length + 1,
+      name: trimmedName,
+      name_bn: trimmedNameBn,
+      display_order: editingCategory ? editingCategory.display_order : categories.length + 1,
     });
 
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message || "Invalid category name");
+      const errMsg = parsed.error.issues[0]?.message || "Invalid category name";
+      setError(errMsg);
+      toast.error(errMsg);
       return;
     }
 
     setLoading(true);
-    const res = await createCategory({
-      restaurant_id: restaurantId,
-      name: parsed.data.name,
-      name_bn: parsed.data.name_bn,
-      display_order: parsed.data.display_order,
-      is_active: true,
-    });
-    setLoading(false);
 
-    if (res.success) {
-      setName("");
-      setNameBn("");
+    if (editingCategory) {
+      // Update existing category
+      const res = await updateCategory(editingCategory.id, {
+        name: parsed.data.name,
+        name_bn: parsed.data.name_bn,
+      });
+      setLoading(false);
+
+      if (res.success && res.data) {
+        const updated = res.data as MenuCategory;
+        onCategoriesChange(categories.map((c) => (c.id === updated.id ? updated : c)));
+        toast.success(`Category "${updated.name}" updated successfully!`);
+        setName("");
+        setNameBn("");
+        setEditingCategory(null);
+      } else {
+        const errMsg = res.error || "Failed to update category";
+        setError(errMsg);
+        toast.error(errMsg);
+      }
     } else {
-      setError(res.error || "Failed to create category");
+      // Create new category
+      const res = await createCategory({
+        restaurant_id: restaurantId,
+        name: parsed.data.name,
+        name_bn: parsed.data.name_bn,
+        display_order: parsed.data.display_order,
+        is_active: true,
+      });
+      setLoading(false);
+
+      if (res.success && res.data) {
+        const created = res.data as MenuCategory;
+        // Immediately refresh category list in state so it appears right away
+        onCategoriesChange([...categories, created]);
+        // Immediately reset input fields
+        setName("");
+        setNameBn("");
+        // Close modal
+        onClose();
+        // Immediately show green success toast with category name
+        toast.success(`Category "${created.name}" added successfully!`);
+      } else {
+        const errMsg = res.error || "Failed to create category";
+        setError(errMsg);
+        toast.error(errMsg);
+      }
     }
   };
 
-  const handleDeleteCategory = async (id: string) => {
-    if (confirm("Are you sure you want to remove this category?")) {
-      await deleteCategory(id);
+  const handleDeleteCategory = async (cat: MenuCategory) => {
+    if (!confirm(`Are you sure you want to remove the category "${cat.name}"?`)) {
+      return;
+    }
+
+    setDeletingId(cat.id);
+    const res = await deleteCategory(cat.id);
+    setDeletingId(null);
+
+    if (res.success) {
+      onCategoriesChange(categories.filter((c) => c.id !== cat.id));
+      toast.success(`Category "${cat.name}" deleted successfully!`);
+      if (editingCategory?.id === cat.id) {
+        handleCancelEdit();
+      }
+    } else {
+      const errMsg = res.error || "Failed to delete category";
+      setError(errMsg);
+      toast.error(errMsg);
     }
   };
 
@@ -963,19 +1053,41 @@ const CategoriesModal: React.FC<CategoriesModalProps> = ({
           {categories.map((c) => (
             <div
               key={c.id}
-              className="flex items-center justify-between p-3 bg-white rounded-lg border border-border"
+              className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
+                editingCategory?.id === c.id
+                  ? "bg-accent/5 border-accent shadow-xs"
+                  : "bg-white border-border"
+              }`}
             >
               <div>
                 <p className="font-semibold text-text text-sm">{c.name}</p>
                 {c.name_bn && <p className="text-xs text-accent font-medium">{c.name_bn}</p>}
               </div>
-              <button
-                type="button"
-                onClick={() => handleDeleteCategory(c.id)}
-                className="text-error hover:opacity-80 p-1 text-xs"
-              >
-                Delete
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleStartEdit(c)}
+                  className="p-1.5 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors flex items-center gap-1"
+                  title="Edit Category"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Edit</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={deletingId === c.id}
+                  onClick={() => handleDeleteCategory(c)}
+                  className="p-1.5 text-xs text-error hover:opacity-80 hover:bg-rose-50 rounded-md transition-colors flex items-center gap-1 disabled:opacity-50"
+                  title="Delete Category"
+                >
+                  {deletingId === c.id ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-3.5 h-3.5" />
+                  )}
+                  <span className="hidden sm:inline">Delete</span>
+                </button>
+              </div>
             </div>
           ))}
           {categories.length === 0 && (
@@ -985,25 +1097,65 @@ const CategoriesModal: React.FC<CategoriesModalProps> = ({
           )}
         </div>
 
-        {/* Add Category Form */}
-        <form onSubmit={handleCreateCategory} className="border-t border-border pt-4 space-y-3">
-          <h4 className="font-bold text-sm text-text">Add New Category</h4>
+        {/* Add/Edit Category Form */}
+        <form onSubmit={handleCreateOrUpdateCategory} className="border-t border-border pt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="font-bold text-sm text-text">
+              {editingCategory ? (
+                <span>
+                  Edit Category: <strong className="text-accent">{editingCategory.name}</strong>
+                </span>
+              ) : (
+                "Add New Category"
+              )}
+            </h4>
+            {editingCategory && (
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                className="text-xs text-text-secondary hover:text-text font-medium"
+              >
+                Cancel Edit
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <Input
-              placeholder="English (e.g. Platters)"
+              placeholder="English (e.g. Platters)*"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
+              disabled={loading}
             />
             <Input
               placeholder="বাংলা (যেমন: প্ল্যাটার)"
               value={nameBn}
               onChange={(e) => setNameBn(e.target.value)}
+              disabled={loading}
             />
           </div>
-          <Button type="submit" loading={loading} fullWidth size="sm">
-            Add Category
-          </Button>
+          <div className="flex gap-2 justify-end">
+            {editingCategory && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleCancelEdit}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+            )}
+            <Button
+              type="submit"
+              loading={loading}
+              disabled={loading}
+              fullWidth={!editingCategory}
+              size="sm"
+            >
+              {loading ? "Saving..." : editingCategory ? "Update Category" : "Add Category"}
+            </Button>
+          </div>
         </form>
       </div>
     </Modal>

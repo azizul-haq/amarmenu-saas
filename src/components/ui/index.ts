@@ -7,3 +7,6 @@ export { Modal } from "./Modal";
 export { Badge } from "./Badge";
 export { Loading } from "./Loading";
 export { Alert } from "./Alert";
+export { Toast } from "./Toast";
+export type { ToastType, ToastItem } from "./Toast";
+export { useToast, ToastProvider } from "../../context/ToastContext";
